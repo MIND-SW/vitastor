@@ -16,8 +16,7 @@
   назначенных инициализаторов (designated initializers) из C++20
 - CMake
 - Заголовки и библиотеки jerasure
-- Опционально - заголовки и библиотеки ISA-L, libibverbs, librdmacm
-- tcmalloc (google-perftools-dev)
+- Опционально - заголовки и библиотеки ISA-L, libibverbs, librdmacm, libnl3
 
 ## Базовая инструкция
 

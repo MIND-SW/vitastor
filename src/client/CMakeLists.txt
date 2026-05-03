@@ -52,9 +52,6 @@ if (${WITH_FIO})
 		../util/rw_blocking.cpp
 		../util/addr_util.cpp
 	)
-	target_link_libraries(fio_vitastor_sec
-		tcmalloc_minimal
-	)
 endif (${WITH_FIO})
 
 # vitastor-nbd

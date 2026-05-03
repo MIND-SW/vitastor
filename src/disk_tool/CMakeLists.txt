@@ -11,7 +11,6 @@ add_executable(vitastor-disk
 	../blockstore/blockstore_disk.cpp ../blockstore/blockstore_heap.cpp ../blockstore/multilist.cpp
 )
 target_link_libraries(vitastor-disk
-	tcmalloc_minimal
 	${LIBURING_LIBRARIES}
 	${ISAL_LIBRARIES}
 )

@@ -19,20 +19,19 @@ target_link_libraries(vitastor-osd
 
 # osd_rmw_test
 add_executable(osd_rmw_test EXCLUDE_FROM_ALL osd_rmw_test.cpp ../util/allocator.cpp)
-target_link_libraries(osd_rmw_test Jerasure ${ISAL_LIBRARIES} tcmalloc_minimal)
+target_link_libraries(osd_rmw_test Jerasure ${ISAL_LIBRARIES})
 add_dependencies(build_tests osd_rmw_test)
 add_test(NAME osd_rmw_test COMMAND osd_rmw_test)
 
 if (ISAL_LIBRARIES)
 	add_executable(osd_rmw_test_je EXCLUDE_FROM_ALL osd_rmw_test.cpp ../util/allocator.cpp)
 	target_compile_definitions(osd_rmw_test_je PUBLIC -DNO_ISAL)
-	target_link_libraries(osd_rmw_test_je Jerasure tcmalloc_minimal)
+	target_link_libraries(osd_rmw_test_je Jerasure)
 	add_dependencies(build_tests osd_rmw_test_je)
 	add_test(NAME osd_rmw_test_jerasure COMMAND osd_rmw_test_je)
 endif (ISAL_LIBRARIES)
 
 # osd_peering_pg_test
 add_executable(osd_peering_pg_test EXCLUDE_FROM_ALL osd_peering_pg_test.cpp osd_peering_pg.cpp)
-target_link_libraries(osd_peering_pg_test tcmalloc_minimal)
 add_dependencies(build_tests osd_peering_pg_test)
 add_test(NAME osd_peering_pg_test COMMAND osd_peering_pg_test)

@@ -16,8 +16,7 @@
   designated initializers support from C++20
 - CMake
 - jerasure headers and libraries
-- ISA-L, libibverbs and librdmacm headers and libraries (optional)
-- tcmalloc (google-perftools-dev)
+- ISA-L, libibverbs, librdmacm, libnl3 headers and libraries (optional)
 
 ## Basic instructions
 
