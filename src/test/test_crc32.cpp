@@ -6,9 +6,10 @@
 #include <unistd.h>
 #include <stdint.h>
 
+#undef WITH_ISAL
 #include "malloc_or_die.h"
 #include "errno.h"
-#include "crc32c.h"
+#include "crc32c.c"
 
 int main(int narg, char *args[])
 {
