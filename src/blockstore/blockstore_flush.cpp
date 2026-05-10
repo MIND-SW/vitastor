@@ -389,6 +389,7 @@ resume_9:
             data->iov = (struct iovec){ read_vec[i].buf + (read_vec[i].copy_flags & COPY_BUF_PADDED
                 ? read_vec[i].offset - read_vec[i].disk_offset : 0), (size_t)read_vec[i].len };
             data->callback = simple_callback_w;
+            assert(clean_loc + read_vec[i].offset + data->iov.iov_len <= bs->dsk.block_count*bs->dsk.data_block_size);
             io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + read_vec[i].offset);
             wait_count++;
         }

@@ -37,6 +37,7 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
         heap->complete_block_write(modified_block);
         ringloop->wakeup();
     };
+    assert(((uint64_t)modified_block+2)*dsk.meta_block_size <= dsk.meta_area_size);
     io_uring_prep_writev(
         sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + ((uint64_t)modified_block+1)*dsk.meta_block_size
     );
@@ -177,6 +178,7 @@ enospc:
         ring_data_t *data = ((ring_data_t*)sqe->user_data);
         data->iov = (struct iovec){ op->buf, op->len };
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+        assert(loc+op->offset+op->len <= dsk.block_count*dsk.data_block_size);
         io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + loc + op->offset);
         PRIV(op)->pending_ops++;
         write_iodepth++;
@@ -264,6 +266,7 @@ enospc:
             BS_SUBMIT_GET_SQE(sqe2, data2);
             data2->iov = (struct iovec){ op->buf, op->len };
             data2->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+            assert(loc+op->len <= dsk.journal_len);
             io_uring_prep_writev(sqe2, dsk.journal_fd, &data2->iov, 1, dsk.journal_offset + loc);
             PRIV(op)->pending_ops++;
         }
@@ -453,6 +456,7 @@ resume_10:
     BS_SUBMIT_GET_SQE(sqe, data);
     data->iov = (struct iovec){ op->buf, op->len };
     data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
+    assert(PRIV(op)->location + op->offset <= dsk.block_count*dsk.data_block_size);
     io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + PRIV(op)->location + op->offset);
     if (dsk.use_atomic_flag)
         sqe->rw_flags = RWF_ATOMIC;
