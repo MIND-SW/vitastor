@@ -192,16 +192,13 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
 #ifdef OSD_STUB
         cur_op->bs_op->retval = 0;
 #endif
-        if (enable_pg_locks)
+        for (int i = 0; i < cur_op->bs_op->len; i++)
         {
-            for (int i = 0; i < cur_op->bs_op->len; i++)
+            if (!sec_check_pg_lock(cl->in_osd_num, ((obj_ver_id*)cur_op->buf)[i].oid, cur_op->req.sec_stab.flags))
             {
-                if (!sec_check_pg_lock(cl->in_osd_num, ((obj_ver_id*)cur_op->buf)[i].oid, cur_op->req.sec_stab.flags))
-                {
-                    cur_op->bs_op->retval = -EPIPE;
-                    secondary_op_callback(cur_op);
-                    return;
-                }
+                cur_op->bs_op->retval = -EPIPE;
+                secondary_op_callback(cur_op);
+                return;
             }
         }
     }
@@ -215,8 +212,8 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
             secondary_op_callback(cur_op);
             return;
         }
-        auto pool_id = INODE_POOL(cur_op->bs_op->min_oid.inode);
-        if (pool_id && !sec_check_pg_lock(0, (object_id){ .inode = cur_op->bs_op->min_oid.inode }, OSD_OP_IGNORE_PG_LOCK))
+        auto pool_id = INODE_POOL(cur_op->req.sec_list.min_inode);
+        if (!pool_id || !sec_check_pg_lock(0, (object_id){ .inode = cur_op->req.sec_list.min_inode }, OSD_OP_IGNORE_PG_LOCK))
         {
             // Check resharding state of the pool
             cur_op->bs_op->retval = -EPIPE;
