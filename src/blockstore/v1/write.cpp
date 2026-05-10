@@ -368,9 +368,9 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-        io_uring_prep_writev(
-            sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc * dsk.data_block_size) + op->offset - stripe_offset
-        );
+        const uint64_t write_offset = (loc * dsk.data_block_size) + op->offset - stripe_offset;
+        assert(write_offset+op->len+stripe_offset+stripe_end <= dsk.block_count*dsk.data_block_size);
+        io_uring_prep_writev(sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + write_offset);
         PRIV(op)->pending_ops = 1;
         if (!(dirty_it->second.state & BS_ST_INSTANT))
         {
@@ -495,9 +495,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 .op = op,
             });
             data2->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };
-            io_uring_prep_writev(
-                sqe2, dsk.journal_fd, &data2->iov, 1, journal.offset + journal.next_free
-            );
+            assert(journal.next_free+op->len <= dsk.journal_len);
+            io_uring_prep_writev(sqe2, dsk.journal_fd, &data2->iov, 1, journal.offset + journal.next_free);
             PRIV(op)->pending_ops++;
         }
         else

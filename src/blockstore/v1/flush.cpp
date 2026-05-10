@@ -520,6 +520,7 @@ resume_2:
                 await_sqe(15);
                 data->iov = (struct iovec){ it->buf, (size_t)it->len };
                 data->callback = simple_callback_w;
+                assert(clean_loc+it->offset+it->len <= bs->dsk.block_count*bs->dsk.data_block_size);
                 io_uring_prep_writev(
                     sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + it->offset
                 );
@@ -749,6 +750,7 @@ bool journal_flusher_co::write_meta_block(flusher_meta_write_t & meta_block, int
     await_sqe(0);
     data->iov = (struct iovec){ meta_block.buf, (size_t)bs->dsk.meta_block_size };
     data->callback = simple_callback_w;
+    assert(bs->dsk.meta_block_size + meta_block.sector + bs->dsk.meta_block_size <= bs->dsk.meta_area_size);
     io_uring_prep_writev(
         sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bs->dsk.meta_block_size + meta_block.sector
     );
