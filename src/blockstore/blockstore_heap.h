@@ -220,6 +220,9 @@ class blockstore_heap_t
     bool validate_object(heap_entry_t *obj);
     void fill_recheck_queue();
     int mark_used_blocks();
+    void init_free_bad_entry(heap_entry_t *wr);
+    void init_erase_bad_entry(heap_list_item_t *li);
+    bool init_erase_double_claim(heap_list_item_t *prev_li, heap_list_item_t *cur_li);
     void recheck_full_gc();
     void recheck_buffer(heap_entry_t *cwr, uint8_t *buf);
     void defragment_block(uint32_t block_num);
@@ -229,6 +232,7 @@ class blockstore_heap_t
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
     void insert_list_item(heap_list_item_t *li);
     void remove_list_item(heap_list_item_t *li);
+    void unlink_list_item(heap_list_item_t *li);
     int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
         bool explicit_complete, std::function<void(heap_entry_t *wr)> fill_entry);
     int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type);

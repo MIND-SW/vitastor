@@ -20,7 +20,7 @@ static int count_writes(blockstore_heap_t & heap, heap_entry_t *obj)
     return n;
 }
 
-#define FREE_SPACE_BIT 0x8000
+#define BS_HEAP_FREE_SPACE 0xAB8F
 #define GARBAGE_BIT ((uint64_t)1 << 63)
 
 bool check_used_space(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint32_t block_num)
@@ -30,10 +30,14 @@ bool check_used_space(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint32_
     uint8_t *data = buf;
     uint8_t *end = data+dsk.meta_block_size;
     uint32_t used = 0;
-    while (data < end)
+    while (data <= end-4)
     {
         heap_entry_t *wr = ((heap_entry_t*)data);
-        if (!(wr->size & FREE_SPACE_BIT) && !wr->is_garbage())
+        if (wr->entry_type == BS_HEAP_FREE_SPACE)
+        {
+            break;
+        }
+        if (!wr->is_garbage())
         {
             used += wr->size;
         }
@@ -41,7 +45,7 @@ bool check_used_space(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint32_
         {
             break;
         }
-        data += (wr->size & ~FREE_SPACE_BIT);
+        data += wr->size;
     }
     free(buf);
     return used == heap.get_meta_block_used_space(block_num);
@@ -2147,6 +2151,193 @@ void test_explicit_complete()
     printf("OK test_explicit_complete\n");
 }
 
+void test_skip_double_claim()
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, false);
+    dsk.skip_double_claim = true;
+    std::vector<uint8_t> tmp(dsk.meta_block_size);
+    std::vector<uint8_t> out(dsk.meta_block_size*3);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    heap_entry_t *wr1 = NULL, *wr2 = NULL, *wr3 = NULL, *wr4 = NULL;
+    uint32_t total_size = 0;
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+
+        wr1 = (heap_entry_t*)(tmp.data() + total_size);
+        wr1->size = heap.get_big_entry_size();
+        wr1->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+        wr1->lsn = 1;
+        wr1->inode = INODE_WITH_POOL(1, 1);
+        wr1->stripe = 0;
+        wr1->version = 1;
+        wr1->set_big_location(&heap, 0x40000); // <-- overwritten
+        wr1->crc32c = wr1->calc_crc32c();
+        total_size += wr1->size;
+
+        wr2 = (heap_entry_t*)(tmp.data() + total_size);
+        wr2->size = heap.get_big_entry_size();
+        wr2->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+        wr2->lsn = 2;
+        wr2->inode = INODE_WITH_POOL(1, 1);
+        wr2->stripe = 0;
+        wr2->version = 2;
+        wr2->set_big_location(&heap, 0); // <-- double claimed
+        wr2->crc32c = wr2->calc_crc32c();
+        total_size += wr2->size;
+
+        wr3 = (heap_entry_t*)(tmp.data() + total_size);
+        wr3->size = heap.get_big_entry_size();
+        wr3->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+        wr3->lsn = 3;
+        wr3->inode = INODE_WITH_POOL(1, 1);
+        wr3->stripe = 0x20000;
+        wr3->version = 1;
+        wr3->set_big_location(&heap, 0); // <-- double claimed
+        wr3->crc32c = wr3->calc_crc32c();
+        total_size += wr3->size;
+
+        wr4 = (heap_entry_t*)(tmp.data() + total_size);
+        wr4->size = heap.get_big_entry_size();
+        wr4->entry_type = BS_HEAP_BIG_WRITE; // <-- unstable
+        wr4->lsn = 4;
+        wr4->inode = INODE_WITH_POOL(1, 1);
+        wr4->stripe = 0x20000;
+        wr4->version = 2;
+        wr4->set_big_location(&heap, 0x20000);
+        wr4->crc32c = wr4->calc_crc32c();
+        total_size += wr4->size;
+
+        *(uint16_t*)(tmp.data() + total_size) = dsk.meta_block_size - total_size;
+        *(uint16_t*)(tmp.data() + total_size + 2) = BS_HEAP_FREE_SPACE;
+
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 1);
+        assert(mod[0] == 0);
+
+        // [1 2] [3 4] - should erase first
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(!obj);
+
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+
+        assert(heap.is_data_used(0));
+        assert(heap.is_data_used(0x20000));
+        assert(!heap.is_data_used(0x40000));
+
+        assert(check_used_space(heap, dsk, 0));
+
+        heap.get_meta_block(0, out.data());
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+
+        wr1->lsn = 1;
+        wr1->crc32c = wr1->calc_crc32c();
+        wr2->lsn = 3;
+        wr2->crc32c = wr2->calc_crc32c();
+        wr3->lsn = 2;
+        wr3->crc32c = wr3->calc_crc32c();
+        wr4->lsn = 4;
+        wr4->crc32c = wr4->calc_crc32c();
+
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 1);
+        assert(mod[0] == 0);
+
+        // [1 [2 3] 4] - intersect - should erase both
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(!obj);
+
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
+        obj = heap.read_entry(oid);
+        assert(!obj);
+
+        assert(!heap.is_data_used(0));
+        assert(!heap.is_data_used(0x20000));
+        assert(!heap.is_data_used(0x40000));
+
+        assert(check_used_space(heap, dsk, 0));
+
+        heap.get_meta_block(0, out.data()+dsk.meta_block_size);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+
+        // [3 4] [1 2] - should erase second
+
+        wr1->lsn = 3;
+        wr1->crc32c = wr1->calc_crc32c();
+        wr2->lsn = 4;
+        wr2->crc32c = wr2->calc_crc32c();
+        wr3->lsn = 1;
+        wr3->crc32c = wr3->calc_crc32c();
+        wr4->lsn = 2;
+        wr4->crc32c = wr4->calc_crc32c();
+
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 1);
+        assert(mod[0] == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
+        obj = heap.read_entry(oid);
+        assert(!obj);
+
+        assert(heap.is_data_used(0));
+        assert(!heap.is_data_used(0x20000));
+        assert(!heap.is_data_used(0x40000));
+
+        assert(check_used_space(heap, dsk, 0));
+
+        heap.get_meta_block(0, out.data()+dsk.meta_block_size*2);
+    }
+
+    // Validate persisted variants
+    for (int i = 0; i < 3; i++)
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, out.data() + dsk.meta_block_size*i, false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+    }
+}
+
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
 
 int main(int narg, char *args[])
@@ -2187,5 +2378,6 @@ int main(int narg, char *args[])
     test_recalc_stats();
     test_redirect_intent_csums();
     test_explicit_complete();
+    test_skip_double_claim();
     return 0;
 }

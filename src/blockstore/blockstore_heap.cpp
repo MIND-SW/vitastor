@@ -408,6 +408,13 @@ corrupted_object:
                     wr->inode, wr->stripe, wr->version, wr->big_intent().offset, wr->big_intent().len);
                 goto corrupted_object;
             }
+            if ((wr->type() == BS_HEAP_BIG_INTENT || wr->type() == BS_HEAP_BIG_WRITE) &&
+                wr->big().block_num >= dsk->block_count)
+            {
+                fprintf(stderr, "Error: big_write or big_intent entry %jx:%jx v%ju block_num is too large: %u > %lu. Metadata is incompatible with current parameters. ",
+                    wr->inode, wr->stripe, wr->version, wr->big_intent().block_num, dsk->block_count);
+                goto corrupted_object;
+            }
             handle_write(block_num, wr);
             block_offset += wr->size;
         }
@@ -593,6 +600,11 @@ void blockstore_heap_t::fill_recheck_queue()
 int blockstore_heap_t::mark_used_blocks()
 {
     int res = 0;
+    std::vector<heap_list_item_t*> used_by;
+    if (dsk->skip_double_claim)
+    {
+        used_by.resize(dsk->block_count);
+    }
     for (auto & pgp: block_index)
     {
         for (auto & ip: pgp.second)
@@ -646,10 +658,34 @@ int blockstore_heap_t::mark_used_blocks()
                     {
                         if (is_data_used(wr->big_location(this)))
                         {
-                            fprintf(stderr, "Error: double-claimed data block %u, second time by %jx:%jx l%ju\n",
-                                wr->big().block_num, wr->inode, wr->stripe, wr->lsn);
-                            res = EDOM;
-                            return;
+                            if (dsk->skip_double_claim)
+                            {
+                                // There is a BUG currently:
+                                // Sometimes (under unknown conditions) deletion entries are removed from the disk
+                                // earlier than previous big_writes.
+                                // Until it's fixed, we provide a way to ignore such objects on start.
+                                auto prev_li = used_by[wr->big().block_num];
+                                assert(prev_li);
+                                // Newer LSN must be trusted. Remove the older object.
+                                fprintf(stderr, "Block %u is double-claimed by entries %jx:%jx l%ju and %jx:%jx l%ju\n",
+                                    wr->big().block_num, prev_li->entry.inode, prev_li->entry.stripe, prev_li->entry.lsn, wr->inode, wr->stripe, wr->lsn);
+                                if (init_erase_double_claim(prev_li, li))
+                                {
+                                    return;
+                                }
+                            }
+                            else
+                            {
+                                fprintf(stderr, "Error: double-claimed data block %u, second time by %jx:%jx l%ju\n",
+                                    wr->big().block_num, wr->inode, wr->stripe, wr->lsn);
+                                res = EDOM;
+                                return;
+                            }
+                        }
+                        if (dsk->skip_double_claim)
+                        {
+                            // Record the object which uses the data block
+                            used_by[wr->big().block_num] = li;
                         }
                         use_data(wr->inode, wr->big_location(this));
                     }
@@ -671,6 +707,116 @@ int blockstore_heap_t::mark_used_blocks()
         recheck_full_gc();
     }
     return res;
+}
+
+void blockstore_heap_t::init_free_bad_entry(heap_entry_t *wr)
+{
+    if (wr->type() == BS_HEAP_SMALL_WRITE)
+    {
+        free_buffer_area(wr->inode, wr->small().location, wr->small().len);
+    }
+    else if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
+    {
+        free_data(wr->inode, wr->big_location(this));
+    }
+}
+
+void blockstore_heap_t::init_erase_bad_entry(heap_list_item_t *li)
+{
+    modify_alloc(li->block_num, [&](heap_block_info_t & inf)
+    {
+        for (size_t i = 0; i < inf.entries.size(); i++)
+        {
+            if (inf.entries[i] == li)
+            {
+                inf.entries.erase(inf.entries.begin()+i);
+                break;
+            }
+        }
+        inf.used_space -= li->entry.size;
+        inf.garbage_space -= (li->entry.is_garbage() ? li->entry.size : 0);
+    });
+    recheck_modified_blocks.insert(li->block_num);
+    unlink_list_item(li);
+}
+
+bool blockstore_heap_t::init_erase_double_claim(heap_list_item_t *prev_li, heap_list_item_t *cur_li)
+{
+    bool erase_prev = false;
+    bool erase_cur = false;
+    if (prev_li->entry.lsn < cur_li->entry.lsn)
+    {
+        erase_prev = true;
+        auto latest_li = prev_li;
+        while (latest_li->next)
+        {
+            latest_li = latest_li->next;
+        }
+        if (latest_li->entry.lsn >= cur_li->entry.lsn)
+        {
+            // LSN ranges intersect, erase both
+            erase_cur = true;
+        }
+    }
+    else
+    {
+        erase_cur = true;
+        auto latest_li = cur_li;
+        while (latest_li->next)
+        {
+            latest_li = latest_li->next;
+        }
+        if ((latest_li->entry.inode != prev_li->entry.inode ||
+            latest_li->entry.stripe != prev_li->entry.stripe) &&
+            latest_li->entry.lsn >= prev_li->entry.lsn)
+        {
+            // LSN ranges intersect, erase both
+            erase_prev = true;
+        }
+    }
+    if (erase_prev)
+    {
+        fprintf(stderr, "Erasing object %jx:%jx due to double-claim\n", prev_li->entry.inode, prev_li->entry.stripe);
+        auto erase_li = prev_li;
+        while (erase_li->next)
+        {
+            erase_li = erase_li->next;
+        }
+        bool overwritten = false;
+        while (erase_li)
+        {
+            auto prev_erase_li = erase_li->prev;
+            if (!overwritten)
+            {
+                init_free_bad_entry(&erase_li->entry);
+                overwritten = erase_li->entry.is_overwrite();
+            }
+            init_erase_bad_entry(erase_li);
+            erase_li = prev_erase_li;
+        }
+    }
+    if (erase_cur)
+    {
+        fprintf(stderr, "Erasing object %jx:%jx due to double-claim\n", cur_li->entry.inode, cur_li->entry.stripe);
+        auto erase_li = cur_li->next;
+        while (erase_li)
+        {
+            // Only newer entries are marked as used
+            auto next_erase_li = erase_li->next;
+            init_free_bad_entry(&erase_li->entry);
+            init_erase_bad_entry(erase_li);
+            erase_li = next_erase_li;
+        }
+        erase_li = cur_li;
+        // Older ones are not
+        while (erase_li)
+        {
+            auto prev_erase_li = erase_li->prev;
+            init_erase_bad_entry(erase_li);
+            erase_li = prev_erase_li;
+        }
+    }
+    return erase_cur;
 }
 
 void blockstore_heap_t::recheck_full_gc()
@@ -2391,6 +2537,22 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
 
 void blockstore_heap_t::remove_list_item(heap_list_item_t *li)
 {
+    if (!li->next)
+    {
+        // The last freed entry must be a deletion
+        assert(!li->prev);
+        assert(li->entry.entry_type == BS_HEAP_DELETE|BS_HEAP_STABLE);
+    }
+    else if (!li->prev && li->next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
+    {
+        // free BS_HEAP_DELETEs when all previous entries are also freed
+        mark_garbage(li->next->block_num, &li->next->entry, UINT32_MAX);
+    }
+    unlink_list_item(li);
+}
+
+void blockstore_heap_t::unlink_list_item(heap_list_item_t *li)
+{
     auto prev = li->prev;
     auto next = li->next;
     if (prev)
@@ -2399,25 +2561,20 @@ void blockstore_heap_t::remove_list_item(heap_list_item_t *li)
     }
     if (!next)
     {
-        // The last freed entry must be a deletion
-        assert(!prev);
         auto wr = &li->entry;
-        assert(wr->entry_type == BS_HEAP_DELETE|BS_HEAP_STABLE);
         auto & pg_idx = block_index[get_pg_id(wr->inode, wr->stripe)];
         auto & inode_idx = pg_idx[wr->inode];
         heap_inode_map_t::iterator li_it;
         heap_list_item_t *old_li = NULL;
         inode_map_get(inode_idx, li_it, old_li, wr->stripe);
-        inode_map_erase(pg_idx, inode_idx, li_it, old_li);
+        if (!prev)
+            inode_map_erase(pg_idx, inode_idx, li_it, old_li);
+        else
+            inode_map_replace(inode_idx, li_it, prev);
     }
     else
     {
         next->prev = prev;
-        if (!prev && next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
-        {
-            // free BS_HEAP_DELETEs when all previous entries are also freed
-            mark_garbage(next->block_num, &next->entry, UINT32_MAX);
-        }
     }
     if (li->entry.is_garbage())
     {

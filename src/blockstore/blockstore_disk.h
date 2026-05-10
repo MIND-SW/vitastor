@@ -59,6 +59,8 @@ struct blockstore_disk_t
     bool discard_on_start = false;
     // GC on start (new store)
     bool gc_on_start = true;
+    // Skip double claim conflicts on start (new store, temporary until the bug is found)
+    bool skip_double_claim = false;
     uint64_t min_discard_size = 1024*1024;
     uint64_t discard_granularity = 0;
 

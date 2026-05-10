@@ -96,6 +96,7 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
         (config["discard_on_start"] == "true" || config["discard_on_start"] == "1" || config["discard_on_start"] == "yes");
     gc_on_start = config.find("gc_on_start") == config.end() ||
         (config["gc_on_start"] == "true" || config["gc_on_start"] == "1" || config["gc_on_start"] == "yes");
+    skip_double_claim = (config["skip_double_claim"] == "true" || config["skip_double_claim"] == "1" || config["skip_double_claim"] == "yes");
     min_discard_size = parse_size(config["min_discard_size"]);
     if (!min_discard_size)
         min_discard_size = 1024*1024;
