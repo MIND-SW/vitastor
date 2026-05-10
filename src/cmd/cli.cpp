@@ -126,6 +126,11 @@ static const char* help_text =
     "  --min-offset, --max-offset\n"
     "      Restrict listing to specific offsets inside inodes.\n"
     "\n"
+    "vitastor-cli raw-ls [OPTIONS]\n"
+    "  Find object(s) in the cluster using raw secondary listing operations. Options:\n"
+    "  [--min_inode NUM] [--max_inode NUM] [--offset NUM] [--pg_num NUM] [--pg_count COUNT]\n"
+    "  [--pg_stripe_size NUM] [--osds 1,2,3,...]\n"
+    "\n"
     "vitastor-cli fix [--objects <objects>] [--bad-osds <osds>] [--part <part>] [--check no]\n"
     "  Fix inconsistent objects in the cluster by deleting some copies.\n"
     "  --objects <objects>\n"
@@ -458,6 +463,11 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     {
         // Describe unclean objects
         action_cb = p->start_describe(cfg);
+    }
+    else if (cmd[0] == "raw-ls")
+    {
+        // Run raw listings
+        action_cb = p->start_raw_ls(cfg);
     }
     else if (cmd[0] == "fix")
     {

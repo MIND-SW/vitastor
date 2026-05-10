@@ -226,7 +226,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         cur_op->bs_op->min_oid.inode = cur_op->req.sec_list.min_inode;
         cur_op->bs_op->min_oid.stripe = cur_op->req.sec_list.min_stripe;
         cur_op->bs_op->max_oid.inode = cur_op->req.sec_list.max_inode;
-        if (cur_op->req.sec_list.max_inode && cur_op->req.sec_list.max_stripe != UINT64_MAX)
+        if (cur_op->req.sec_list.max_inode)
         {
             cur_op->bs_op->max_oid.stripe = cur_op->req.sec_list.max_stripe
                 ? cur_op->req.sec_list.max_stripe : UINT64_MAX;

@@ -27,6 +27,7 @@ add_library(vitastor_cli STATIC
 	cli_pool_ls.cpp
 	cli_pool_modify.cpp
 	cli_pool_rm.cpp
+	cli_raw_ls.cpp
 )
 target_compile_options(vitastor_cli PUBLIC -fPIC)
 

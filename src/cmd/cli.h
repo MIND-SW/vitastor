@@ -62,6 +62,7 @@ public:
     std::function<bool(cli_result_t &)> start_fix(json11::Json);
     std::function<bool(cli_result_t &)> start_flatten(json11::Json);
     std::function<bool(cli_result_t &)> start_ls(json11::Json);
+    std::function<bool(cli_result_t &)> start_raw_ls(json11::Json cfg);
     std::function<bool(cli_result_t &)> start_merge(json11::Json);
     std::function<bool(cli_result_t &)> start_modify(json11::Json);
     std::function<bool(cli_result_t &)> start_modify_osd(json11::Json);
