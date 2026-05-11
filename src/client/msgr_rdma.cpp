@@ -612,7 +612,9 @@ void osd_messenger_t::try_send_rdma(osd_client_t *cl)
     while (!rc->send_out_full && copied > 0 && rc->cur_send < rc->max_send)
     {
         dst = (uint8_t*)rc->send_out.buf + rc->send_out_pos;
-        dst_len = (rc->send_out_pos < rc->send_out_size ? rc->send_out_size-rc->send_out_pos : rc->send_done_pos-rc->send_out_pos);
+        dst_len = (rc->send_out_pos >= rc->send_done_pos
+            ? rc->send_out_size-rc->send_out_pos
+            : rc->send_done_pos-rc->send_out_pos);
         if (dst_len > rc->max_msg)
             dst_len = rc->max_msg;
         copied = try_send_rdma_copy(cl, dst, dst_len);
@@ -622,7 +624,7 @@ void osd_messenger_t::try_send_rdma(osd_client_t *cl)
             if (rc->send_out_pos == rc->send_out_size)
                 rc->send_out_pos = 0;
             assert(rc->send_out_pos < rc->send_out_size);
-            if (rc->send_out_pos >= rc->send_done_pos)
+            if (rc->send_out_pos == rc->send_done_pos)
                 rc->send_out_full = true;
             ibv_sge sge = {
                 .addr = (uintptr_t)dst,
