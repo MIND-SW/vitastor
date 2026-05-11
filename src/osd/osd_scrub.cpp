@@ -289,6 +289,8 @@ bool osd_t::continue_scrub()
     if (no_scrub)
     {
         // Return false = no more scrub work to do
+        if (scrub_cur_list.buf)
+            free(scrub_cur_list.buf);
         scrub_cur_list = {};
         scrub_last_pg = {};
         scrub_nearest_ts = 0;
