@@ -16,6 +16,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     else if (priv->op_state == 5) goto resume_5;
     assert(!priv->op_state);
     op->retval = 0;
+    PRIV(op)->lsn = 0;
     priv->modified_block = priv->modified_block2 = UINT32_MAX;
     for (priv->stab_pos = 0; priv->stab_pos < op->len; priv->stab_pos++)
     {

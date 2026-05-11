@@ -9,6 +9,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
     if (!PRIV(op)->op_state)
     {
         op->retval = 0;
+        PRIV(op)->lsn = 0;
     }
     int res = do_sync(op, 0);
     if (res == 2)
@@ -104,7 +105,8 @@ int blockstore_impl_t::do_sync(blockstore_op_t *op, int base_state)
         unsynced_data_write_count = unsynced_buffer_write_count = unsynced_meta_write_count = 0;
         return 2;
     }
-    PRIV(op)->modified_block = heap->get_completed_lsn();
+    assert(!PRIV(op)->lsn);
+    PRIV(op)->lsn = heap->get_completed_lsn();
     if (!submit_fsyncs(PRIV(op)->pending_ops))
     {
         PRIV(op)->wait_detail = 1;
@@ -118,6 +120,6 @@ resume_1:
         return 1;
     }
 resume_2:
-    heap->mark_lsn_fsynced(PRIV(op)->modified_block);
+    heap->mark_lsn_fsynced(PRIV(op)->lsn);
     return 2;
 }
