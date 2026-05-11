@@ -220,7 +220,7 @@ void osd_messenger_t::init()
                             .opcode = OSD_OP_PING,
                         },
                     };
-                    op->callback = [this, cl](osd_op_t *op)
+                    op->callback = [this](osd_op_t *op)
                     {
                         auto cl_it = clients.find(op->client_id);
                         if (cl_it == clients.end())
@@ -229,6 +229,7 @@ void osd_messenger_t::init()
                             delete op;
                             return;
                         }
+                        auto cl = cl_it->second;
                         uint64_t fail_client_id = (op->reply.hdr.retval != 0 ? op->client_id : 0);
                         auto fail_osd_num = cl->in_osd_num ? cl->in_osd_num : cl->osd_num;
                         cl->ping_time_remaining = 0;
