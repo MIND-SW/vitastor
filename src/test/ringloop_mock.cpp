@@ -166,8 +166,9 @@ void ring_loop_mock_t::mark_completed(ring_data_t *data)
     wakeup();
 }
 
-disk_mock_t::disk_mock_t(size_t size, bool buffered)
+disk_mock_t::disk_mock_t(const std::string & name, size_t size, bool buffered)
 {
+    this->name = name;
     this->size = size;
     this->data = (uint8_t*)malloc_or_die(size);
     this->buffered = buffered;
@@ -242,7 +243,7 @@ void disk_mock_t::discard_buffers(bool all, uint32_t seed)
     if (all)
     {
         if (trace)
-            printf("disk: discard all buffers (%zu)\n", buffers.size());
+            printf("%s: discard all buffers (%zu)\n", name.c_str(), buffers.size());
         for (auto & b: buffers)
             free(b.second.iov_base);
         buffers.clear();
@@ -250,7 +251,7 @@ void disk_mock_t::discard_buffers(bool all, uint32_t seed)
     else
     {
         if (trace)
-            printf("disk: discard random buffers seed=%u\n", seed);
+            printf("%s: discard random buffers seed=%u\n", name.c_str(), seed);
         std::mt19937 rnd(seed);
         for (auto it = buffers.begin(); it != buffers.end(); )
         {
@@ -279,7 +280,7 @@ ssize_t disk_mock_t::copy_from_sqe(io_uring_sqe *sqe, uint8_t *to, uint64_t base
         }
         size_t cur = (off + v[i].iov_len > size ? size-off : v[i].iov_len);
         if (trace)
-            printf("disk: write %zu+%zu from %jx\n", off, cur, (uint64_t)v[i].iov_base);
+            printf("%s: write %zu+%zu from %jx\n", name.c_str(), off, cur, (uint64_t)v[i].iov_base);
         memcpy(to + off - base_offset, v[i].iov_base, cur);
         off += v[i].iov_len;
     }
@@ -332,7 +333,7 @@ bool disk_mock_t::submit(io_uring_sqe *sqe)
             {
                 size_t cur = (off + v[i].iov_len > size ? size-off : v[i].iov_len);
                 if (trace)
-                    printf("disk: read %zu+%zu to %jx\n", off, cur, (uint64_t)v[i].iov_base);
+                    printf("%s: read %zu+%zu to %jx\n", name.c_str(), off, cur, (uint64_t)v[i].iov_base);
                 if (buffers.size())
                     read_item((uint8_t*)v[i].iov_base, off, cur);
                 else
@@ -374,7 +375,7 @@ bool disk_mock_t::submit(io_uring_sqe *sqe)
     else if (sqe->opcode == IORING_OP_FSYNC)
     {
         if (trace)
-            printf("disk: fsync\n");
+            printf("%s: fsync\n", name.c_str());
         if (buffers.size())
         {
             for (auto & b: buffers)

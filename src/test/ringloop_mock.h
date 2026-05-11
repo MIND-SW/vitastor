@@ -45,6 +45,7 @@ class disk_mock_t
 {
     uint8_t *data = NULL;
     std::map<uint64_t, iovec> buffers;
+    std::string name;
     size_t size = 0;
     bool buffered = false;
 
@@ -53,7 +54,7 @@ class disk_mock_t
     void read_item(uint8_t *to, uint64_t offset, uint64_t len);
 public:
     bool trace = false;
-    disk_mock_t(size_t size, bool buffered);
+    disk_mock_t(const std::string & name, size_t size, bool buffered);
     ~disk_mock_t();
     void clear(size_t offset, size_t len);
     void discard_buffers(bool all, uint32_t seed);

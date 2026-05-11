@@ -106,13 +106,13 @@ struct bs_test_t
         }
         if (!data_disk)
         {
-            data_disk = new disk_mock_t(parse_size(config["data_device_size"]), config["disable_data_fsync"] != "1");
+            data_disk = new disk_mock_t("data disk", parse_size(config["data_device_size"]), config["disable_data_fsync"] != "1");
             data_disk->clear(0, parse_size(config["data_offset"]));
         }
         uint64_t meta_size = parse_size(config["meta_device_size"]);
         if (meta_size && !meta_disk)
         {
-            meta_disk = new disk_mock_t(meta_size, config["disable_meta_fsync"] != "1");
+            meta_disk = new disk_mock_t("meta disk", meta_size, config["disable_meta_fsync"] != "1");
             meta_disk->clear(0, meta_size);
         }
         if (!bs)
@@ -230,6 +230,14 @@ static void test_simple()
     free(op.buf);
 }
 
+static bool memcmp_byte(uint8_t *buf, uint8_t c, size_t len)
+{
+    for (size_t i = 0; i < len; i++)
+        if (buf[i] != c)
+            return false;
+    return true;
+}
+
 static void test_fsync(bool separate_meta)
 {
     printf("\n-- test_fsync%s\n", separate_meta ? " separate_meta" : "");
@@ -251,9 +259,9 @@ static void test_fsync(bool separate_meta)
         test.meta_disk->trace = 1;
 
     // Write
-    printf("writing\n");
+    printf("writing 16K+4K v1\n");
     blockstore_op_t op;
-    op.opcode = BS_OP_WRITE;
+    op.opcode = BS_OP_WRITE_STABLE;
     op.oid = { .inode = 1, .stripe = 0 };
     op.version = 1;
     op.offset = 16384;
@@ -312,6 +320,54 @@ static void test_fsync(bool separate_meta)
     assert(is_zero(op2.buf, 16*1024));
     assert(memcmp(op2.buf+16*1024, op.buf, 4*1024) == 0);
     assert(is_zero(op2.buf+20*1024, 108*1024));
+
+    // Check fsync during compaction - do a small write
+    printf("writing 20K+4K v2\n");
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 2;
+    op.offset = 20*1024;
+    op.len = 4096;
+    memset(op.buf, 0xab, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    // Check it by a read op
+    op2.version = UINT64_MAX;
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 16*1024));
+    assert(memcmp_byte(op2.buf+16*1024, 0xaa, 4*1024));
+    assert(memcmp_byte(op2.buf+20*1024, 0xab, 4*1024));
+    assert(is_zero(op2.buf+24*1024, 104*1024));
+
+    // Trigger & wait compaction
+    test.bs->flusher->dump_diagnostics();
+    test.bs->flusher->request_trim();
+    while (test.bs->heap->get_compact_queue_size())
+        test.ringloop->loop();
+    while (test.bs->flusher->is_active())
+        test.ringloop->loop();
+    test.bs->flusher->release_trim();
+    // Check that compaction succeeded
+    assert(!test.bs->heap->get_to_compact_count());
+
+    // Restart and check data again
+    test.destroy_bs();
+    test.data_disk->discard_buffers(true, 0);
+    test.init();
+
+    op2.version = UINT64_MAX;
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 16*1024));
+    assert(memcmp_byte(op2.buf+16*1024, 0xaa, 4*1024));
+    assert(memcmp_byte(op2.buf+20*1024, 0xab, 4*1024)); // <- would be lost without data device fsync
+    assert(is_zero(op2.buf+24*1024, 104*1024));
 
     free(op.buf);
     free(op2.buf);
