@@ -1185,7 +1185,6 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 if (i >= pg_state_bit_count)
                 {
                     fprintf(stderr, "Unexpected pool %u PG %u state keyword in etcd: %s\n", pool_id, pg_num, e.dump().c_str());
-                    return;
                 }
             }
             if (!cur_primary || !value["state"].is_array() || !state ||
@@ -1194,7 +1193,6 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 (state & PG_INCOMPLETE) && state != PG_INCOMPLETE && state != (PG_INCOMPLETE|PG_HAS_INVALID))
             {
                 fprintf(stderr, "Unexpected pool %u PG %u state in etcd: primary=%ju, state=%s\n", pool_id, pg_num, cur_primary, value["state"].dump().c_str());
-                return;
             }
             pg_cfg.cur_primary = cur_primary;
             pg_cfg.cur_state = state;
