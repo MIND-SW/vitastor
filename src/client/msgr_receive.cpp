@@ -372,7 +372,7 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
             stop_client(cl->client_id);
             return false;
         }
-        if (bmp_len > 0)
+        if (op->reply.hdr.retval >= 0 && bmp_len > 0)
         {
             assert(op->bitmap);
             cl->recv_list.push_back(op->bitmap, bmp_len);
