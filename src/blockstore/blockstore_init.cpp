@@ -153,6 +153,14 @@ resume_1:
             );
             exit(1);
         }
+        uint32_t csum = hdr->header_csum;
+        hdr->header_csum = 0;
+        if (crc32c(0, hdr, sizeof(*hdr)) != csum)
+        {
+            printf("Metadata header is corrupt (checksum mismatch).\n");
+            exit(1);
+        }
+        hdr->header_csum = csum;
     }
     bs->heap->start_load(((blockstore_meta_header_v3_t *)bs->meta_superblock)->completed_lsn);
     if (bs->dsk.inmemory_journal)
