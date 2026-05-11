@@ -348,7 +348,7 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
 bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
 {
     auto req_it = cl->sent_ops.find(cl->read_op->req.hdr.id);
-    if (req_it == cl->sent_ops.end())
+    if (req_it == cl->sent_ops.end() || req_it->second->req.hdr.opcode != cl->read_op->req.hdr.opcode)
     {
         // Command out of sync. Drop connection
         fprintf(stderr, "Client %ju command out of sync: id %ju\n", cl->client_id, cl->read_op->req.hdr.id);
