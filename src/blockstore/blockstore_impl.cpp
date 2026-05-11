@@ -101,6 +101,7 @@ void blockstore_impl_t::loop()
         unsigned initial_ring_space = ringloop->space_left();
         int op_idx = 0, new_idx = 0;
         bool has_unfinished_writes = false;
+        bool has_unfinished_sync = false;
         for (; op_idx < submit_queue.size(); op_idx++, new_idx++)
         {
             auto op = submit_queue[op_idx];
@@ -138,7 +139,13 @@ void blockstore_impl_t::loop()
             else if (op->opcode == BS_OP_SYNC)
             {
                 // syncs only completed writes, so doesn't have to be blocked by anything
-                wr_st = continue_sync(op);
+                if (!has_unfinished_sync)
+                {
+                    wr_st = continue_sync(op);
+                    has_unfinished_sync = (wr_st != 2);
+                }
+                else
+                    wr_st = 0;
             }
             else if (op->opcode == BS_OP_STABLE || op->opcode == BS_OP_ROLLBACK)
             {
@@ -154,9 +161,7 @@ void blockstore_impl_t::loop()
                     wr_st = 2;
                 }
                 else
-                {
                     wr_st = 0;
-                }
             }
             if (wr_st == 2)
             {
