@@ -1171,7 +1171,7 @@ resume_2:
         erase_op(op);
         return 1;
     }
-    else if (op->retval != 0 && !(op->flags & OP_FLUSH_BUFFER) &&
+    else if (op->retval != 0 && op->opcode != OSD_OP_SYNC && !(op->flags & OP_FLUSH_BUFFER) &&
         op->retval != -EPIPE && (op->retval != -EIO || !client_eio_retry_interval) && (op->retval != -ENOSPC || !client_retry_enospc))
     {
         // Fatal error (neither -EPIPE, -EIO nor -ENOSPC)
