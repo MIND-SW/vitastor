@@ -231,8 +231,11 @@ resume_10:
     }
     submit_primary_subops(SUBMIT_WRITE, op_data->target_ver, pg.cur_set.data(), cur_op);
 resume_4:
-    op_data->st = 4;
-    return;
+    if (op_data->n_subops > 0)
+    {
+        op_data->st = 4;
+        return;
+    }
 resume_5:
     if (op_data->errors > 0)
     {
@@ -247,8 +250,11 @@ resume_5:
             {
                 submit_primary_rollback_subops(cur_op, pg.cur_set.data());
 resume_11:
-                op_data->st = 11;
-                return;
+                if (op_data->n_subops > 0)
+                {
+                    op_data->st = 11;
+                    return;
+                }
 resume_12:
                 // Ignore ROLLBACK errors - submit_primary_subops will drop the connection if it fails
                 delete[] op_data->unstable_writes;
@@ -487,8 +493,11 @@ immediate:
             }
             submit_primary_stab_subops(cur_op);
 resume_6:
-            op_data->st = 6;
-            return false;
+            if (op_data->n_subops > 0)
+            {
+                op_data->st = 6;
+                return false;
+            }
 resume_7:
             // FIXME: Free those in the destructor?
             delete op_data->unstable_write_osds;

@@ -145,8 +145,11 @@ resume_4:
         // Stabilize version sets, if any
         submit_primary_stab_subops(cur_op);
 resume_5:
-        op_data->st = 5;
-        return;
+        if (op_data->n_subops > 0)
+        {
+            op_data->st = 5;
+            return;
+        }
     }
 resume_6:
     if (op_data->errors > 0)

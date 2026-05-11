@@ -769,8 +769,11 @@ resume_3:
         op_data->fact_ver++;
         submit_primary_del_subops(cur_op, NULL, 0, op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set);
 resume_4:
-        op_data->st = 4;
-        return;
+        if (op_data->n_subops > 0)
+        {
+            op_data->st = 4;
+            return;
+        }
 resume_5:
         if (op_data->errors > 0)
         {
