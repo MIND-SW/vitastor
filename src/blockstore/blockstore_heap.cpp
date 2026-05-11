@@ -2541,7 +2541,7 @@ void blockstore_heap_t::remove_list_item(heap_list_item_t *li)
     {
         // The last freed entry must be a deletion
         assert(!li->prev);
-        assert(li->entry.entry_type == BS_HEAP_DELETE|BS_HEAP_STABLE);
+        assert((li->entry.entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_DELETE|BS_HEAP_STABLE));
     }
     else if (!li->prev && li->next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
     {
