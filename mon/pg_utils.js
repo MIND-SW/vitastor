@@ -84,7 +84,7 @@ function scale_pg_history(prev_pg_history, prev_pgs, new_pgs)
         finish_pg_history(merged_history[1]);
         for (let i = 0; i < new_pg_count; i++)
         {
-            new_pg_history[i] = { ...merged_history[1] };
+            new_pg_history[i] = JSON.parse(JSON.stringify(merged_history[1]));
         }
     }
     // Mark history keys for removed PGs as removed
