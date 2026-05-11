@@ -1,7 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#ifndef _LARGEFILE64_SOURCE
 #define _LARGEFILE64_SOURCE
+#endif
+
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
