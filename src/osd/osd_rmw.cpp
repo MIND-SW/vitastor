@@ -1281,7 +1281,7 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
     std::vector<std::vector<int>> live_variants(pg_size);
     int eq_to[stripe_count];
     int live_roles = 0, live_total = 0;
-    for (int i = 0; i < pg_size; i++)
+    for (int i = 0; i < stripe_count; i++)
     {
         eq_to[i] = i;
     }
@@ -1381,7 +1381,7 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
             for (i = 0; i < pg_minsize; i++)
             {
                 subvar[i]++;
-                if (subvar[i] < live_variants[combination[i]].size())
+                if (subvar[i] < live_variants[comb_to_subset[combination[i]]].size())
                     break;
                 subvar[i] = 0;
             }
