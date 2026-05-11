@@ -614,7 +614,8 @@ bool osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
     get_object_osd_set(pg, oid, &recheck_state);
     if (recheck_state != *object_state)
     {
-        recheck_state->ref_count++;
+        if (recheck_state)
+            recheck_state->ref_count++;
         (*object_state)->ref_count--;
         *object_state = recheck_state;
         return false;
