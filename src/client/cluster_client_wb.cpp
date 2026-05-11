@@ -244,12 +244,13 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
             writeback_queue_size--;
         }
     }
-    if (!is_del)
+    if (!is_del && op->len > 0)
     {
         uint64_t pos = 0, len = op->len, iov_idx = 0;
-        while (len > 0 && iov_idx < op->iov.count)
+        while (iov_idx < op->iov.count)
         {
             auto & iov = op->iov.buf[iov_idx];
+            assert(pos + iov.iov_len <= len);
             memcpy(buf + pos, iov.iov_base, iov.iov_len);
             pos += iov.iov_len;
             iov_idx++;
