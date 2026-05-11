@@ -780,6 +780,11 @@ resume_5:
         }
         // Remove version override
         pg.ver_override.erase(op_data->oid);
+        // Mark PG and OSDs as dirty
+        for (auto & chunk: (op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set))
+        {
+            this->dirty_osds.insert(chunk.osd_num);
+        }
         // Adjust PG stats after "instant stabilize", because we need object_state above
         if (!op_data->object_state)
         {
@@ -789,11 +794,6 @@ resume_5:
         {
             remove_object_from_state(op_data->oid, &op_data->object_state, pg);
             deref_object_state(pg, &op_data->object_state, true);
-        }
-        // Mark PG and OSDs as dirty
-        for (auto & chunk: (op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set))
-        {
-            this->dirty_osds.insert(chunk.osd_num);
         }
         for (auto cl_it = msgr.clients.find(cur_op->client_id); cl_it != msgr.clients.end(); )
         {
