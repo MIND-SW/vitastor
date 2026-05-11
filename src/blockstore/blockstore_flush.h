@@ -25,6 +25,15 @@ struct flusher_meta_write_t
     std::map<uint64_t, meta_sector_t>::iterator it;
 };
 
+struct flusher_data_sync_t
+{
+    int member_count = 0;
+    int ready_count = 0;
+    int done_count = 0;
+    bool sent = false;
+    bool done = false;
+};
+
 class journal_flusher_t;
 
 // Journal flusher coroutine
@@ -58,6 +67,7 @@ class journal_flusher_co
     int i, res;
     bool read_to_fill_incomplete;
     int copy_count;
+    std::list<flusher_data_sync_t>::iterator cur_sync;
 
     friend class journal_flusher_t;
 
@@ -68,6 +78,8 @@ class journal_flusher_co
     bool calc_block_checksums();
     bool write_meta_block(int wait_base);
     bool read_buffered(int wait_base);
+    void init_fsync_data();
+    bool fsync_data(int wait_base);
     bool fsync_meta(int wait_base);
     bool fsync_buffer(int wait_base);
     bool trim_lsn(int wait_base);
@@ -88,6 +100,7 @@ class journal_flusher_t
 
     robin_hood::unordered_flat_set<object_id> flushing;
     int active_flushers = 0;
+    std::list<flusher_data_sync_t> data_syncs;
     int wanting_meta_fsync = 0;
     bool fsyncing_meta = false;
     int syncing_buffer = 0;

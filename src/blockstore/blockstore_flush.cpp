@@ -174,14 +174,18 @@ bool journal_flusher_co::loop()
     else if (wait_state == 19) goto resume_19;
     else if (wait_state == 20) goto resume_20;
     else if (wait_state == 21) goto resume_21;
+    else if (wait_state == 22) goto resume_22;
+    else if (wait_state == 23) goto resume_23;
+    else if (wait_state == 24) goto resume_24;
+    else if (wait_state == 25) goto resume_25;
 resume_0:
     wait_state = 0;
     wait_count = 0;
     cur_oid = {};
     res = bs->heap->get_next_compact(cur_oid);
-    // Advance fsynced_lsn every <journal_trim_interval> intent writes
     if ((bs->intent_write_counter >= bs->journal_trim_interval) && co_id == 0)
     {
+        // Advance fsynced_lsn every <journal_trim_interval> intent writes
         bs->intent_write_counter = 0;
 resume_17:
 resume_18:
@@ -196,6 +200,7 @@ resume_21:
     if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&
         (!bs->dsk.disable_journal_fsync || !bs->dsk.disable_meta_fsync || !bs->dsk.disable_data_fsync))
     {
+        // When under pressure, do an additional fsync to force entries to be marked compactable
         flusher->active_flushers++;
 resume_14:
 resume_15:
@@ -259,11 +264,9 @@ resume_1:
         if (wr->type() == BS_HEAP_SMALL_WRITE ||
             wr->type() == BS_HEAP_INTENT_WRITE && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
         {
-            auto res = bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size,
+            bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size,
                 wr->type() == BS_HEAP_INTENT_WRITE && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity && !bs->perfect_csum_update
                 ? COPY_BUF_SKIP_CSUM : 0);
-            if (res > 0)
-                copy_count++;
         }
     });
     if (!compact_info.compact_lsn)
@@ -272,6 +275,25 @@ resume_1:
         flusher->flushing.erase(cur_oid);
         bs->heap->unlock_entry(cur_oid);
         goto resume_0;
+    }
+    flusher->active_flushers++;
+    for (i = 0; i < read_vec.size(); i++)
+    {
+        if ((read_vec[i].copy_flags & COPY_BUF_JOURNAL) &&
+            !(read_vec[i].copy_flags & COPY_BUF_COALESCED))
+        {
+            copy_count++;
+        }
+    }
+    if (copy_count > 0 && !bs->dsk.disable_data_fsync)
+    {
+        init_fsync_data();
+    }
+    if (bs->log_level > 10)
+    {
+        printf("Compacting %jx:%jx v%ju..v%ju / l%ju..l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe,
+            compact_info.clean_wr->version, compact_info.compact_version,
+            compact_info.clean_wr->lsn, compact_info.compact_lsn, copy_count);
     }
     mem_or(new_bmp, compact_info.clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
     if (!bitmap_copied)
@@ -291,13 +313,6 @@ resume_1:
         csum_copy.clear();
     }
     clean_loc = compact_info.clean_wr->big_location(bs->heap);
-    flusher->active_flushers++;
-    if (bs->log_level > 10)
-    {
-        printf("Compacting %jx:%jx v%ju..v%ju / l%ju..l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe,
-            compact_info.clean_wr->version, compact_info.compact_version,
-            compact_info.clean_wr->lsn, compact_info.compact_lsn, copy_count);
-    }
     overwrite_start = overwrite_end = 0;
     if (read_vec.size() > 0)
     {
@@ -336,6 +351,13 @@ resume_3:
     if (res == ENOENT || res == EDOM)
     {
         // Abort compaction
+abort_compact:
+        if (copy_count > 0 && !bs->dsk.disable_data_fsync)
+        {
+            cur_sync->member_count--;
+            if (cur_sync->member_count > 0)
+                bs->ringloop->wakeup();
+        }
         flusher->flushing.erase(cur_oid);
         bs->heap->unlock_entry(cur_oid);
         flusher->active_flushers--;
@@ -349,10 +371,7 @@ resume_4:
         if (res == ENOENT)
         {
             // Abort compaction
-            flusher->flushing.erase(cur_oid);
-            bs->heap->unlock_entry(cur_oid);
-            flusher->active_flushers--;
-            goto resume_0;
+            goto abort_compact;
         }
         if (res == EAGAIN)
         {
@@ -381,8 +400,7 @@ resume_9:
     for (i = 0; i < read_vec.size(); i++)
     {
         if ((read_vec[i].copy_flags & COPY_BUF_JOURNAL) &&
-            !(read_vec[i].copy_flags & COPY_BUF_COALESCED) ||
-            (read_vec[i].copy_flags & COPY_BUF_PADDED)) // FIXME Shit, simplify these flags
+            !(read_vec[i].copy_flags & COPY_BUF_COALESCED))
         {
             assert(read_vec[i].buf);
             await_sqe(10);
@@ -399,6 +417,17 @@ resume_11:
     {
         wait_state = 11;
         return false;
+    }
+    if (copy_count > 0 && !bs->dsk.disable_data_fsync)
+    {
+resume_22:
+resume_23:
+resume_24:
+resume_25:
+        if (!fsync_data(22))
+        {
+            return false;
+        }
     }
     // Lock is only needed to prevent freeing the big_write because we overwrite it...
     bs->heap->unlock_entry(cur_oid);
@@ -696,6 +725,67 @@ resume_1:
     {
         wait_state = wait_base+1;
         return false;
+    }
+    return true;
+}
+
+void journal_flusher_co::init_fsync_data()
+{
+    cur_sync = flusher->data_syncs.begin();
+    if (cur_sync == flusher->data_syncs.end() || cur_sync->ready_count > 0)
+    {
+        cur_sync = flusher->data_syncs.emplace(cur_sync);
+    }
+    cur_sync->member_count++;
+}
+
+bool journal_flusher_co::fsync_data(int wait_base)
+{
+    if (wait_state == wait_base)
+        goto resume_0;
+    else if (wait_state == wait_base+1)
+        goto resume_1;
+    else if (wait_state == wait_base+2)
+        goto resume_2;
+    else if (wait_state == wait_base+3)
+        goto resume_3;
+    cur_sync->ready_count++;
+resume_0:
+    if (cur_sync->ready_count < cur_sync->member_count)
+    {
+        wait_state = wait_base;
+        return false;
+    }
+    if (!cur_sync->sent)
+    {
+        // Sync batch is ready. Do it.
+        await_sqe(1);
+        data->iov = { 0 };
+        data->callback = simple_callback_w;
+        io_uring_prep_fsync(sqe, bs->dsk.data_fd, IORING_FSYNC_DATASYNC);
+        cur_sync->sent = true;
+        wait_count++;
+resume_2:
+        if (wait_count > 0)
+        {
+            wait_state = wait_base+2;
+            return false;
+        }
+        cur_sync->done = true;
+        // Wake up other flushers
+        bs->ringloop->wakeup();
+    }
+resume_3:
+    if (!cur_sync->done)
+    {
+        wait_state = wait_base+3;
+        return false;
+    }
+    cur_sync->done_count++;
+    if (cur_sync->done_count >= cur_sync->member_count)
+    {
+        flusher->data_syncs.erase(cur_sync);
+        cur_sync = flusher->data_syncs.end();
     }
     return true;
 }

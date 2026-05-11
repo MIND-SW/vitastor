@@ -194,6 +194,7 @@ void disk_mock_t::erase_buffers(uint64_t begin, uint64_t end)
         if (bs >= begin && be <= end)
         {
             // Remove the whole buffer
+            free(it->second.iov_base);
             buffers.erase(it++);
         }
         else if (bs < begin && be > end)
@@ -223,6 +224,7 @@ void disk_mock_t::erase_buffers(uint64_t begin, uint64_t end)
             assert(be > end);
             uint8_t *ce = (uint8_t*)malloc_or_die(be-end);
             memcpy(ce, (uint8_t*)it->second.iov_base + (end-bs), be-end);
+            free(it->second.iov_base);
             buffers[be] = (iovec){ .iov_base = ce, .iov_len = be-end };
             buffers.erase(it);
             break;
