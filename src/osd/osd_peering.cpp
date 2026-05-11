@@ -140,10 +140,12 @@ void osd_t::reset_pg(pg_t & pg)
     copies_to_delete_after_sync_count -= pg.copies_to_delete_after_sync.size();
     pg.copies_to_delete_after_sync.clear();
     corrupted_objects -= pg.corrupted_count;
+    inconsistent_objects -= pg.inconsistent_objects.size();
     incomplete_objects -= pg.incomplete_objects.size();
     misplaced_objects -= pg.misplaced_objects.size();
     degraded_objects -= pg.degraded_objects.size();
     pg.corrupted_count = 0;
+    pg.inconsistent_objects.clear();
     pg.incomplete_objects.clear();
     pg.misplaced_objects.clear();
     pg.degraded_objects.clear();
@@ -351,6 +353,7 @@ bool osd_t::continue_pg_peering(pg_t & pg)
         pg.calc_object_states(log_level);
         report_pg_state(pg);
         schedule_scrub(pg);
+        inconsistent_objects += pg.inconsistent_objects.size();
         incomplete_objects += pg.incomplete_objects.size();
         misplaced_objects += pg.misplaced_objects.size();
         // FIXME: degraded objects may currently include misplaced, too! Report them separately?
