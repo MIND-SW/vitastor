@@ -505,7 +505,7 @@ void osd_t::scrub_check_results(osd_op_t *cur_op)
                 {
                     unknown = true;
                 }
-                if (votes[role] > 0 && votes[role] < votes[best])
+                if (eq_to[role] != -1 && votes[eq_to[role]] > 0 && votes[eq_to[role]] < votes[best])
                 {
                     printf(
                         "[PG %u/%u] Object %jx:%jx v%ju copy on OSD %ju doesn't match %d other copies%s\n",
