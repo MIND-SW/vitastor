@@ -249,22 +249,6 @@ resume_4:
     // metadata read finished
     bs->heap->finish_load();
     printf("Metadata entries loaded: %ju, rechecking unfinished writes and garbage entries\n", entries_loaded);
-    if (zero_on_init && !bs->dsk.disable_meta_fsync)
-    {
-        GET_SQE();
-        io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
-        last_read_offset = 0;
-        data->iov = { 0 };
-        data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
-        submitted++;
-        bs->ringloop->submit();
-    resume_5:
-        if (submitted > 0)
-        {
-            wait_state = 5;
-            return 1;
-        }
-    }
     // asynchronous recheck
 resume_6:
     wait_state = 6;
@@ -345,6 +329,22 @@ resume_9:
     }
     free(metadata_buffer);
     metadata_buffer = NULL;
+    if (!bs->dsk.disable_meta_fsync && !bs->readonly)
+    {
+        GET_SQE();
+        io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
+        last_read_offset = 0;
+        data->iov = { 0 };
+        data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+        submitted++;
+        bs->ringloop->submit();
+    resume_5:
+        if (submitted > 0)
+        {
+            wait_state = 5;
+            return 1;
+        }
+    }
     printf("Loading finished. Data used: %ju / %ju bytes (%s / %s)\n",
         bs->heap->get_data_used_space(), bs->dsk.block_count * bs->dsk.data_block_size,
         format_size(bs->heap->get_data_used_space()).c_str(),
