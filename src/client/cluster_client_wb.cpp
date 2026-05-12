@@ -88,6 +88,11 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
     // ...or just save it for writeback if write buffering is enabled
     if (op->len == 0)
     {
+        // FIXME: OSD_OP_DELETEs are currently only sent by vitastor-cli rm/rm-data and
+        // actually have len=0, because delete is actually a delete of the full object
+        // containing the requested offset, not a "punch hole" operation. But here, writeback
+        // cache assumes it IS a "punch hole" operation. I should select one of these
+        // approaches and fix everything accordingly when I decide to implement TRIM.
         return;
     }
     auto dirty_it = find_dirty(op->inode, op->offset);
@@ -444,7 +449,7 @@ void writeback_cache_t::start_writebacks(cluster_client_t *cli, int count)
         started++;
         assert(writeback_queue_size > 0);
         writeback_queue_size--;
-        writeback_bytes -= off - from_it->first.stripe;
+        writeback_bytes -= (is_del ? 0 : off - from_it->first.stripe);
         assert(writeback_queue_size > 0 || !writeback_bytes);
         flush_buffers(cli, from_it, to_it);
     }
