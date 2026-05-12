@@ -230,14 +230,6 @@ static void test_simple()
     free(op.buf);
 }
 
-static bool memcmp_byte(uint8_t *buf, uint8_t c, size_t len)
-{
-    for (size_t i = 0; i < len; i++)
-        if (buf[i] != c)
-            return false;
-    return true;
-}
-
 static void test_fsync(bool separate_meta)
 {
     printf("\n-- test_fsync%s\n", separate_meta ? " separate_meta" : "");
@@ -341,8 +333,8 @@ static void test_fsync(bool separate_meta)
     test.exec_op(&op2);
     assert(op2.retval == op2.len);
     assert(is_zero(op2.buf, 16*1024));
-    assert(memcmp_byte(op2.buf+16*1024, 0xaa, 4*1024));
-    assert(memcmp_byte(op2.buf+20*1024, 0xab, 4*1024));
+    assert(memcheck(op2.buf+16*1024, 0xaa, 4*1024));
+    assert(memcheck(op2.buf+20*1024, 0xab, 4*1024));
     assert(is_zero(op2.buf+24*1024, 104*1024));
 
     // Trigger & wait compaction
@@ -365,8 +357,8 @@ static void test_fsync(bool separate_meta)
     test.exec_op(&op2);
     assert(op2.retval == op2.len);
     assert(is_zero(op2.buf, 16*1024));
-    assert(memcmp_byte(op2.buf+16*1024, 0xaa, 4*1024));
-    assert(memcmp_byte(op2.buf+20*1024, 0xab, 4*1024)); // <- would be lost without data device fsync
+    assert(memcheck(op2.buf+16*1024, 0xaa, 4*1024));
+    assert(memcheck(op2.buf+20*1024, 0xab, 4*1024)); // <- would be lost without data device fsync
     assert(is_zero(op2.buf+24*1024, 104*1024));
 
     free(op.buf);
@@ -490,6 +482,84 @@ static void test_padded_csum_intent(bool perfect)
     free(op2.buf);
 }
 
+static void test_perfect_csum_interrupted()
+{
+    printf("\n-- test_perfect_csum_interrupted\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["csum_block_size"] = "16384";
+    test.config["perfect_csum_update"] = "1";
+    test.config["disable_meta_fsync"] = "1";
+    test.config["meta_device"] = "./test_meta.bin";
+    test.config["meta_device_size"] = "33554432";
+    test.config["meta_device_sect"] = "4096";
+    test.config["data_offset"] = "0";
+    test.init();
+
+    // Write
+    printf("writing\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 16*1024;
+    op.len = 12*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 12*1024);
+    memset(op.buf, 0xaa, 12*1024);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Write again
+    printf("writing (small)\n");
+    op.version = 2;
+    op.offset = 20*1024;
+    op.len = 4*1024;
+    memset(op.buf, 0xbb, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Trigger & block compaction after punch_holes
+    bool modified = false;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_META_FD && sqe->opcode == IORING_OP_WRITEV)
+        {
+            bool ok = test.meta_disk->submit(sqe);
+            assert(ok);
+            free(((ring_data_t*)sqe->user_data)->iov.iov_base);
+            modified = true;
+            return true;
+        }
+        return false;
+    };
+    test.bs->flusher->request_trim();
+    while (!modified)
+        test.ringloop->loop();
+    test.destroy_bs();
+    test.init();
+
+    // Read and check
+    printf("rechecking reloaded\n");
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = UINT64_MAX;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(memcheck(op2.buf, 0, 16*1024));
+    assert(memcheck(op2.buf+16*1024, 0xaa, 4*1024));
+    assert(memcheck(op2.buf+20*1024, 0xbb, 4*1024));
+    assert(memcheck(op2.buf+24*1024, 0xaa, 4*1024));
+    assert(memcheck(op2.buf+28*1024, 0, 100*1024));
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 static void test_padded_csum_parallel_read(bool perfect, uint32_t offset)
 {
     printf("\n-- test_padded_csum_parallel_read%s offset=%u\n", perfect ? " perfect_csum_update" : "", offset);
@@ -582,6 +652,7 @@ int main(int narg, char *args[])
     test_intent_over_unstable();
     test_padded_csum_intent(false);
     test_padded_csum_intent(true);
+    test_perfect_csum_interrupted();
     test_padded_csum_parallel_read(false, 8192);
     test_padded_csum_parallel_read(true, 8192);
     test_padded_csum_parallel_read(false, 16384);

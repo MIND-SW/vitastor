@@ -1738,6 +1738,7 @@ int blockstore_heap_t::punch_holes(heap_entry_t *wr, uint8_t *new_bitmap, uint8_
     *modified_block = block_num;
     memcpy(wr->get_int_bitmap(this), new_bitmap, dsk->clean_entry_bitmap_size);
     memcpy(wr->get_checksums(this), new_csums, dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
+    wr->crc32c = wr->calc_crc32c();
     return 0;
 }
 

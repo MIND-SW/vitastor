@@ -616,7 +616,7 @@ int journal_flusher_co::check_and_punch_checksums()
             bs->heap->calc_block_checksums((uint32_t*)(new_csums+csum_off), vec.buf, punch_bmp, vec.offset, vec.offset+vec.len, true, NULL);
         }
     }
-    // Modified, we should add_punch_holes and then write the block to disk
+    // Modified, we should punch_holes and then write the block to disk
     return EBUSY;
 }
 
