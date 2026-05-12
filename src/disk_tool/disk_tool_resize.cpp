@@ -111,7 +111,7 @@ int disk_tool_t::raw_resize()
     fprintf(stderr, "Done\n");
 ret:
     free_new_meta();
-    return 0;
+    return r;
 }
 
 int disk_tool_t::resize_parse_params()
