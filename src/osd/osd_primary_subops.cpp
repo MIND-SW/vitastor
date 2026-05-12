@@ -359,7 +359,7 @@ void osd_t::add_bs_subop_stats(osd_op_t *subop, bool recovery_related)
     uint64_t opcode = bs_op_to_osd_op[subop->bs_op->opcode];
     timespec tv_end;
     clock_gettime(CLOCK_REALTIME, &tv_end);
-    uint64_t len = (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE)
+    uint64_t len = (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
         ? subop->bs_op->len : 0;
     msgr.inc_op_stats(msgr.stats, opcode, subop->tv_begin, tv_end, len);
     if (recovery_related)
