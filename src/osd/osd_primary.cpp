@@ -522,19 +522,19 @@ pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, con
     {
         this->incomplete_objects++;
         obj_state |= OBJ_INCOMPLETE;
-        pg_state_bits = PG_HAS_INCOMPLETE;
+        pg_state_bits |= PG_HAS_INCOMPLETE;
     }
     else if (n_roles < pg.pg_cursize)
     {
         this->degraded_objects++;
         obj_state |= OBJ_DEGRADED;
-        pg_state_bits = PG_HAS_DEGRADED;
+        pg_state_bits |= PG_HAS_DEGRADED;
     }
     else if (n_misplaced > 0 || n_outdated > 0)
     {
         this->misplaced_objects++;
         obj_state |= OBJ_MISPLACED;
-        pg_state_bits = PG_HAS_MISPLACED;
+        pg_state_bits |= PG_HAS_MISPLACED;
     }
     if (this->log_level >= log_at_level)
     {
