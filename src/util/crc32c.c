@@ -410,7 +410,7 @@ uint32_t crc32c_pad(uint32_t prev_crc, const void *buf, size_t len, size_t left_
         r = crc32c(r, zero_page, 4096);
         right_pad -= 4096;
     }
-    if (left_pad > 0)
+    if (right_pad > 0)
         r = crc32c(r, zero_page, right_pad);
     return r;
 }
