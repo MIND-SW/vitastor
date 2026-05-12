@@ -719,7 +719,7 @@ class Mon
                 this.next_recheck_timer = null;
                 this.next_recheck_at = 0;
                 this.schedule_recheck();
-            }, now-this.next_recheck_at);
+            }, (this.next_recheck_at-now)*1000);
         }
     }
 
