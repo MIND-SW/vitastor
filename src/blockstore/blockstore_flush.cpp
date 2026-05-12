@@ -438,12 +438,14 @@ resume_25:
     if (!cur_obj)
     {
         // Abort compaction
+        flusher->active_flushers--;
         flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
     if (!calc_block_checksums())
     {
         // Abort compaction
+        flusher->active_flushers--;
         flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
@@ -452,6 +454,7 @@ resume_25:
     if (res == EBUSY)
     {
         // Abort compaction, object is already overwritten by something else
+        flusher->active_flushers--;
         flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
