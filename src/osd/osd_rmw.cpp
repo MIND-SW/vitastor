@@ -417,6 +417,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                     data_ptrs[orig++] = (uint8_t*)stripes[other].read_buf + (read_start - stripes[other].read_start);
                 }
             }
+            assert(orig == pg_minsize);
             ec_encode_data(
                 read_end-read_start, pg_minsize, wanted, dectable + wanted_base*item_size*pg_minsize,
                 data_ptrs, data_ptrs + pg_minsize
