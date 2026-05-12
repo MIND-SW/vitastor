@@ -633,13 +633,17 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
     }
 }
 
-int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
+void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int n_osds = op_data->dirty_osd_count;
-    osd_op_t *subops = new osd_op_t[n_osds];
     op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = n_osds;
+    if (op_data->n_subops <= 0)
+    {
+        return;
+    }
+    osd_op_t *subops = new osd_op_t[n_osds];
     op_data->subops = subops;
     robin_hood::unordered_flat_map<uint64_t, osd_client_t*>::iterator peer_it;
     for (int i = 0; i < n_osds; i++)
@@ -677,25 +681,27 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
         }
         else
         {
-            op_data->done++;
+            op_data->n_subops--;
         }
     }
-    if (op_data->done >= op_data->n_subops)
+    if (op_data->n_subops <= 0)
     {
         delete[] op_data->subops;
         op_data->subops = NULL;
-        return 0;
     }
-    return 1;
 }
 
 void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     int n_osds = op_data->unstable_write_osds->size();
-    osd_op_t *subops = new osd_op_t[n_osds];
     op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = n_osds;
+    if (op_data->n_subops <= 0)
+    {
+        return;
+    }
+    osd_op_t *subops = new osd_op_t[n_osds];
     op_data->subops = subops;
     for (int i = 0; i < n_osds; i++)
     {

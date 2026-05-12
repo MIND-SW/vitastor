@@ -127,13 +127,13 @@ resume_2:
     if (immediate_commit != IMMEDIATE_ALL)
     {
         // SYNC
-        if (!submit_primary_sync_subops(cur_op))
-        {
-            goto resume_4;
-        }
+        submit_primary_sync_subops(cur_op);
 resume_3:
-        op_data->st = 3;
-        return;
+        if (op_data->n_subops > 0)
+        {
+            op_data->st = 3;
+            return;
+        }
 resume_4:
         if (op_data->errors > 0)
         {
@@ -194,8 +194,11 @@ resume_6:
         // Actually delete copies which we wanted to delete
         submit_primary_del_batch(cur_op, op_data->copies_to_delete, op_data->copies_to_delete_count);
 resume_7:
-        op_data->st = 7;
-        return;
+        if (op_data->n_subops > 0)
+        {
+            op_data->st = 7;
+            return;
+        }
 resume_8:
         if (op_data->errors > 0)
         {
