@@ -269,6 +269,7 @@ resume_0:
                 finish_op(cur_op, -EIO);
                 return;
             }
+            assert(!cur_op->buf);
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg ? pg->pg_data_size : 1, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
         }
@@ -281,6 +282,7 @@ resume_0:
             }
             // Submit reads
             op_data->degraded = 1;
+            assert(!cur_op->buf);
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg->pg_size, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
         }
@@ -300,7 +302,11 @@ resume_2:
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
             auto new_object_state = mark_object_corrupted(*pg, op_data->oid, op_data->object_state, op_data->stripes, false);
             if (new_object_state != op_data->object_state)
+            {
+                free(cur_op->buf);
+                cur_op->buf = NULL;
                 goto resume_0;
+            }
         }
         finish_op(cur_op, op_data->errcode);
         return;
