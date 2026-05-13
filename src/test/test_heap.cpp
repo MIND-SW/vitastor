@@ -2338,6 +2338,139 @@ void test_skip_double_claim()
     }
 }
 
+void test_postpone_load()
+{
+    blockstore_disk_t dsk;
+    // FIXME dsk.readonly = true;
+    _test_init(dsk, false);
+    std::vector<uint8_t> tmp(dsk.meta_block_size*10);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
+
+        size_t total_size = 0;
+        auto wr1 = (heap_entry_t*)(tmp.data() + total_size);
+        wr1->size = heap.get_big_entry_size();
+        wr1->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+        wr1->lsn = 1;
+        wr1->inode = INODE_WITH_POOL(1, 1);
+        wr1->stripe = 0;
+        wr1->version = 1;
+        wr1->set_big_location(&heap, 0x20000);
+        memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
+        wr1->crc32c = wr1->calc_crc32c();
+        total_size += wr1->size;
+
+        assert(total_size+heap.get_big_entry_size() <= dsk.meta_block_size);
+        wr1 = (heap_entry_t*)(tmp.data() + total_size);
+        wr1->size = heap.get_big_entry_size();
+        wr1->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+        wr1->lsn = 20; // 20 but compacted - newest entry
+        wr1->inode = INODE_WITH_POOL(1, 1);
+        wr1->stripe = 0;
+        wr1->version = 1;
+        wr1->set_big_location(&heap, 0x20000);
+        memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
+        wr1->crc32c = wr1->calc_crc32c();
+        total_size += wr1->size;
+
+        uint32_t small_size = heap.get_small_entry_size(0, 4096);
+        auto add_small = [&](uint64_t lsn)
+        {
+            assert(total_size+small_size <= dsk.meta_block_size);
+            auto wr2 = (heap_entry_t*)(tmp.data() + total_size);
+            wr2->size = small_size;
+            wr2->entry_type = BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE;
+            wr2->lsn = lsn;
+            wr2->inode = INODE_WITH_POOL(1, 1);
+            wr2->stripe = 0;
+            wr2->version = lsn;
+            wr2->small().offset = (lsn % 32)*4096;
+            wr2->small().len = 4096;
+            wr2->small().location = lsn*4096;
+            memset(wr2->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
+            *((uint32_t*)wr2->get_checksum(&heap)) = crc32c(0, buffer_area.data()+wr2->small().location, 4096);
+            wr2->crc32c = wr2->calc_crc32c();
+            total_size += small_size;
+        };
+        for (int i = 0; i < 10; i++)
+            add_small(2 + 2*i); // 2..20
+        for (int i = 0; i < 10; i++)
+            add_small(30 - i); // 21..30
+        for (int i = 0; i < 9; i++)
+            add_small(3 + 2*i); // 3..19
+
+        assert(total_size+heap.get_big_entry_size() <= dsk.meta_block_size);
+        wr1 = (heap_entry_t*)(tmp.data() + total_size);
+        wr1->size = heap.get_big_entry_size();
+        wr1->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
+        wr1->lsn = 15; // 15 but also compacted
+        wr1->inode = INODE_WITH_POOL(1, 1);
+        wr1->stripe = 0;
+        wr1->version = 1;
+        wr1->set_big_location(&heap, 0x20000);
+        memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
+        wr1->crc32c = wr1->calc_crc32c();
+        total_size += wr1->size;
+
+        *(uint16_t*)(tmp.data() + total_size) = dsk.meta_block_size - total_size;
+        *(uint16_t*)(tmp.data() + total_size + 2) = BS_HEAP_FREE_SPACE;
+
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 22);
+
+        heap.finish_load();
+
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 32);
+        uint64_t clsn = 30;
+        bool stable = true;
+        for (auto wr = obj; wr; wr = heap.prev(wr))
+        {
+            assert(wr->lsn == clsn);
+            if (clsn == 20 || clsn == 15)
+            {
+                assert(wr->entry_type == (stable ? BS_HEAP_BIG_WRITE|BS_HEAP_STABLE : BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE));
+                if (stable)
+                    stable = false;
+                else
+                {
+                    clsn--;
+                    stable = true;
+                }
+            }
+            else if (clsn == 1)
+            {
+                assert(wr->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+            }
+            else
+            {
+                assert(wr->entry_type == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
+                clsn--;
+            }
+        }
+
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 1);
+
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 11);
+    }
+}
+
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
 
 int main(int narg, char *args[])
@@ -2379,5 +2512,6 @@ int main(int narg, char *args[])
     test_redirect_intent_csums();
     test_explicit_complete();
     test_skip_double_claim();
+    test_postpone_load();
     return 0;
 }

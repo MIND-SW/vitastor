@@ -28,6 +28,7 @@
 
 #define IMAP_MALLOC_LOW_BITS ((size_t)0x0F)
 #define IMAP_MAX_LOW 16
+#define POSTPONE_INSERT_COUNT 10
 
 #define list_item_overhead(a) (((a) + sizeof(heap_list_item_t) - sizeof(heap_entry_t) + sizeof(void*) + 15) & ~15)
 
@@ -126,26 +127,26 @@ uint32_t heap_entry_t::get_size(blockstore_heap_t *heap)
     return heap->get_simple_entry_size();
 }
 
-bool heap_entry_t::is_overwrite()
+bool heap_entry_t::is_overwrite() const
 {
     return ((entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
         (entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE) ||
         (entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_DELETE|BS_HEAP_STABLE));
 }
 
-bool heap_entry_t::is_compactable()
+bool heap_entry_t::is_compactable() const
 {
     return !is_overwrite() && (entry_type & BS_HEAP_STABLE) ||
         (entry_type & ~BS_HEAP_GARBAGE) == BS_HEAP_COMMIT ||
         (entry_type & ~BS_HEAP_GARBAGE) == BS_HEAP_ROLLBACK;
 }
 
-bool heap_entry_t::is_before(heap_entry_t *other)
+bool heap_entry_t::is_before(const heap_entry_t *other) const
 {
     return lsn < other->lsn || lsn == other->lsn && !is_overwrite() && other->is_overwrite();
 }
 
-bool heap_entry_t::is_garbage()
+bool heap_entry_t::is_garbage() const
 {
     return (entry_type & BS_HEAP_GARBAGE);
 }
@@ -441,7 +442,7 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
             next_lsn = wr->lsn;
         }
         entries_loaded++;
-        loaded_list_items.push_back(li);
+        insert_list_items(&li, 1, true);
         modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
             if (!inf.entries.size())
@@ -547,18 +548,26 @@ bool blockstore_heap_t::validate_object(heap_entry_t *obj)
 
 void blockstore_heap_t::finish_load()
 {
-    if (loaded_list_items.size())
+    if (postponed_items.size())
     {
-        // Sort everything and load in correct order
-        std::sort(loaded_list_items.begin(), loaded_list_items.end(), [this](const heap_list_item_t* a, const heap_list_item_t* b)
+        // Sort "postponed" items and load in batches
+        std::sort(postponed_items.begin(), postponed_items.end(), [this](const heap_list_item_t* a, const heap_list_item_t* b)
         {
-            return a->entry.lsn < b->entry.lsn;
+            return a->entry.inode < b->entry.inode || a->entry.inode == b->entry.inode &&
+                (a->entry.stripe < b->entry.stripe || a->entry.stripe == b->entry.stripe &&
+                    !a->entry.is_before(&b->entry)); // object ASC, lsn DESC
         });
-        for (auto & li: loaded_list_items)
+        size_t s = 0, e, n = postponed_items.size();
+        for (e = 1; e <= n; e++)
         {
-            insert_list_item(li);
+            if (e >= n || postponed_items[e]->entry.inode != postponed_items[s]->entry.inode &&
+                postponed_items[e]->entry.stripe != postponed_items[s]->entry.stripe)
+            {
+                insert_list_items(postponed_items.data()+s, e-s, false);
+                s = e;
+            }
         }
-        loaded_list_items.clear();
+        postponed_items.clear();
     }
 }
 
@@ -1474,43 +1483,51 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
     return 0;
 }
 
-void blockstore_heap_t::insert_list_item(heap_list_item_t *li)
+void blockstore_heap_t::insert_list_items(heap_list_item_t** v, size_t count, bool postpone)
 {
-    auto & inode_idx = block_index[get_pg_id(li->entry.inode, li->entry.stripe)][li->entry.inode];
+    auto wr = &v[0]->entry;
+    auto & inode_idx = block_index[get_pg_id(wr->inode, wr->stripe)][wr->inode];
     heap_inode_map_t::iterator li_it;
     heap_list_item_t *old_head = NULL;
     if (inode_idx)
-        inode_map_get(inode_idx, li_it, old_head, li->entry.stripe);
-    if (old_head && !old_head->entry.is_before(&li->entry))
+        inode_map_get(inode_idx, li_it, old_head, wr->stripe);
+    heap_list_item_t *next_li = NULL;
+    heap_list_item_t *prev_li = old_head;
+    int skips = 0;
+    // Merge entry array and inode_idx linked list (both sorted in newest first order)
+    for (size_t i = 0; i < count; i++)
     {
         // BIG_WRITE may be inserted into the middle of the sequence during compaction
         // and it overrides SMALL_WRITEs and COMMITs with the same LSN
         // However, all entries of other types (say DELETE) override previous ones
-        auto next_li = old_head;
-        auto prev_li = old_head->prev;
+        auto li = v[i];
         while (prev_li && !prev_li->entry.is_before(&li->entry))
         {
             next_li = prev_li;
             prev_li = prev_li->prev;
+            skips++;
+        }
+        if (postpone && skips > POSTPONE_INSERT_COUNT)
+        {
+            postponed_items.push_back(li);
+            return;
+        }
+        if (next_li == NULL)
+        {
+            // Replace the latest entry pointer
+            if (old_head)
+                inode_map_replace(inode_idx, li_it, li);
+            else
+                inode_map_put(inode_idx, li);
         }
         // Insert <li> between <next_li> and <prev_li>
+        li->next = next_li;
+        if (next_li)
+            next_li->prev = li;
         li->prev = prev_li;
         if (prev_li)
             prev_li->next = li;
-        next_li->prev = li;
-        li->next = next_li;
-    }
-    else
-    {
-        li->prev = old_head;
-        li->next = NULL;
-        if (old_head)
-        {
-            old_head->next = li;
-            inode_map_replace(inode_idx, li_it, li);
-        }
-        else
-            inode_map_put(inode_idx, li);
+        next_li = li;
     }
 }
 
@@ -1542,7 +1559,7 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
         (explicit_complete ? HEAP_INFLIGHT_EXPLICIT : 0) |
         (new_wr->is_overwrite() ? HEAP_INFLIGHT_COMPACTED : 0) |
         (new_wr->is_compactable() ? HEAP_INFLIGHT_COMPACTABLE : 0));
-    insert_list_item(li);
+    insert_list_items(&li, 1, false);
     li->block_num = block_num;
     new_wr->size = wr_size;
     new_wr->crc32c = new_wr->calc_crc32c();

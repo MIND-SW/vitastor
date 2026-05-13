@@ -57,11 +57,11 @@ struct __attribute__((__packed__)) heap_entry_t
     inline heap_small_write_t& small() { return *(heap_small_write_t*)this; }
     inline heap_big_write_t& big() { return *(heap_big_write_t*)this; }
     inline heap_big_intent_t& big_intent() { return *(heap_big_intent_t*)this; }
-    bool is_garbage();
+    bool is_garbage() const;
     void set_garbage();
-    bool is_overwrite();
-    bool is_compactable();
-    bool is_before(heap_entry_t *other);
+    bool is_overwrite() const;
+    bool is_compactable() const;
+    bool is_before(const heap_entry_t *other) const;
     uint32_t get_size(blockstore_heap_t *heap);
     uint8_t *get_ext_bitmap(blockstore_heap_t *heap);
     uint8_t *get_int_bitmap(blockstore_heap_t *heap);
@@ -208,7 +208,7 @@ class blockstore_heap_t
 
     bool marked_used_blocks = false;
     bool recheck_queue_filled = false;
-    std::vector<heap_list_item_t*> loaded_list_items;
+    std::vector<heap_list_item_t*> postponed_items;
     std::set<uint32_t> recheck_modified_blocks;
     std::deque<heap_entry_t*> recheck_queue;
     int recheck_in_progress = 0;
@@ -230,7 +230,7 @@ class blockstore_heap_t
 
     void gc_block(heap_block_info_t & inf);
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
-    void insert_list_item(heap_list_item_t *li);
+    void insert_list_items(heap_list_item_t** v, size_t count, bool postpone);
     void remove_list_item(heap_list_item_t *li);
     void unlink_list_item(heap_list_item_t *li);
     int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
