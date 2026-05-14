@@ -37,6 +37,12 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                 FINISH_OP(op);
                 return 2;
             }
+            if (res == ENOENT)
+            {
+                op->retval = -ENOENT;
+                FINISH_OP(op);
+                return 2;
+            }
             if (res == ENOSPC)
             {
                 if (!heap->get_to_compact_count())
