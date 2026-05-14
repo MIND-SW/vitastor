@@ -141,7 +141,7 @@ struct __attribute__((__packed__)) journal_entry
 inline uint32_t je_crc32(journal_entry *je)
 {
     // 0x48674bc7 = crc32(4 zero bytes)
-    return crc32c(0x48674bc7, ((uint8_t*)je)+4, je->size-4);
+    return je->size < 4 ? 0 : crc32c(0x48674bc7, ((uint8_t*)je)+4, je->size-4);
 }
 
 // "VITAstor"
