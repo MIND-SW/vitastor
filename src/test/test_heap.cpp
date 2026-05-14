@@ -76,6 +76,38 @@ void _test_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t
     heap.complete_block_write(mblock);
 }
 
+void _test_big_intent(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version,
+    bool stable, uint32_t offset, uint32_t len, uint8_t *data, uint32_t expected_mblock = 0)
+{
+    uint32_t mblock = 999999;
+    object_id oid = { .inode = INODE_WITH_POOL(1, inode), .stripe = stripe };
+    uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
+    memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
+    heap_entry_t *obj = heap.read_entry(oid);
+    int res = heap.add_big_intent(oid, &obj, version, offset, len, ext_bitmap, data, NULL, &mblock);
+    assert(res == 0);
+    assert(mblock == 0);
+    heap.start_block_write(mblock);
+    heap.complete_block_write(mblock);
+    heap.complete_lsn_write(obj->lsn);
+}
+
+void _test_redirect_intent(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t location,
+    bool stable, uint32_t offset, uint32_t len, uint8_t *data, uint32_t expected_mblock = 0)
+{
+    heap.use_data(INODE_WITH_POOL(1, inode), location); // blocks are allocated before write and outside the heap_t
+    uint32_t mblock = 999999;
+    object_id oid = { .inode = INODE_WITH_POOL(1, inode), .stripe = stripe };
+    uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
+    memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
+    heap_entry_t *obj = heap.read_entry(oid);
+    int res = heap.add_redirect_intent(oid, &obj, version, offset, len, location, ext_bitmap, data, &mblock);
+    assert(res == 0);
+    assert(mblock == expected_mblock || expected_mblock == UINT32_MAX);
+    heap.start_block_write(mblock);
+    heap.complete_block_write(mblock);
+}
+
 int _test_do_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version,
     uint32_t offset, uint32_t len, uint64_t location, bool stable, uint8_t *data, bool is_intent = false, uint32_t *mblock = NULL, heap_entry_t **obj = NULL)
 {
@@ -979,8 +1011,10 @@ void test_modify_bitmap()
     printf("OK test_modify_bitmap\n");
 }
 
-void test_recheck(bool async, bool csum, bool intent)
+void test_recheck(bool async, bool csum)
 {
+    printf("test_recheck %s %s\n", async ? "async" : "sync", csum ? "csum" : "no_csum");
+
     blockstore_disk_t dsk;
     _test_init(dsk, csum);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
@@ -993,15 +1027,52 @@ void test_recheck(bool async, bool csum, bool intent)
         blockstore_heap_t heap(&dsk, buffer_area.data());
         heap.finish_recheck();
 
-        // object 1
-        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 8192, buffer_area.data());
-        _test_small_write(heap, dsk, 1, 0, 2, 8*1024, 8*1024, 16*1024, true, buffer_area.data(), intent);
+        // object 1 - two intent writes, both valid
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 8192, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 4*1024, 8*1024, 0, true, buffer_area.data(), true);
+        _test_small_write(heap, dsk, 1, 0, 3, 8*1024, 8*1024, 0, true, buffer_area.data(), true);
 
-        // object 2
-        _test_big_write(heap, dsk, 2, 0, 1, 0x40000, true, 0, 8192, buffer_area.data());
-        if (intent)
-            _test_small_write(heap, dsk, 2, 0, 2, 20*1024, 4*1024, 36*1024, true, buffer_area.data(), intent);
-        _test_small_write(heap, dsk, 2, 0, intent ? 3 : 2, 8*1024, 12*1024, 24*1024, true, buffer_area.data(), intent);
+        // object 2 - two intent writes, second invalid
+        _test_big_write(heap, dsk, 2, 0, 1, 0x20000, true, 0, 8192, buffer_area.data());
+        _test_small_write(heap, dsk, 2, 0, 2, 4*1024, 8*1024, 0, true, buffer_area.data(), true);
+        _test_small_write(heap, dsk, 2, 0, 3, 8*1024, 8*1024, 0, true, buffer_area.data(), true);
+
+        // object 3 - 2 valid small writes
+        _test_big_write(heap, dsk, 3, 0, 1, 0x40000, true, 0, 8192, buffer_area.data());
+        memset(buffer_area.data()+12*1024, 0xab, 8*1024);
+        _test_small_write(heap, dsk, 3, 0, 2, 4*1024, 8*1024, 12*1024, true, buffer_area.data());
+        memset(buffer_area.data()+20*1024, 0xab, 8*1024);
+        _test_small_write(heap, dsk, 3, 0, 3, 8*1024, 8*1024, 20*1024, true, buffer_area.data());
+
+        // object 4 - first valid and second invalid small write
+        _test_big_write(heap, dsk, 4, 0, 1, 0x60000, true, 0, 8192, buffer_area.data());
+        memset(buffer_area.data()+28*1024, 0xab, 8*1024);
+        _test_small_write(heap, dsk, 4, 0, 2, 4*1024, 8*1024, 28*1024, true, buffer_area.data());
+        memset(buffer_area.data()+36*1024, 0xab, 8*1024);
+        memset(buffer_area.data()+36*1024+4096+40, 0xcc, 40);
+        _test_small_write(heap, dsk, 4, 0, 3, 8*1024, 8*1024, 36*1024, true, buffer_area.data());
+
+        // object 5 - first invalid and second valid small write
+        _test_big_write(heap, dsk, 5, 0, 1, 0x80000, true, 0, 8192, buffer_area.data());
+        memset(buffer_area.data()+44*1024, 0xab, 8*1024);
+        memset(buffer_area.data()+44*1024+4096+40, 0xcc, 40);
+        _test_small_write(heap, dsk, 5, 0, 2, 4*1024, 8*1024, 44*1024, true, buffer_area.data());
+        memset(buffer_area.data()+52*1024, 0xab, 8*1024);
+        _test_small_write(heap, dsk, 5, 0, 3, 8*1024, 8*1024, 52*1024, true, buffer_area.data());
+
+        // object 6 - single big_intent write, valid
+        _test_redirect_intent(heap, dsk, 6, 0, 1, 0xA0000, true, 16384, 8192, buffer_area.data());
+
+        // object 7 - single big_intent write, invalid
+        _test_redirect_intent(heap, dsk, 7, 0, 1, 0xC0000, true, 16384, 8192, buffer_area.data());
+
+        // object 8 - big_write + big_intent write, valid
+        _test_big_write(heap, dsk, 8, 0, 1, 0xE0000, true, 0, 8192, buffer_area.data());
+        _test_big_intent(heap, dsk, 8, 0, 2, true, 16384, 8192, buffer_area.data());
+
+        // object 9 - big_write + big_intent write, invalid
+        _test_big_write(heap, dsk, 9, 0, 1, 0x100000, true, 0, 8192, buffer_area.data());
+        _test_big_intent(heap, dsk, 9, 0, 2, true, 16384, 8192, buffer_area.data());
 
         // persist
         assert(heap.get_meta_block_used_space(0) > 0);
@@ -1011,8 +1082,10 @@ void test_recheck(bool async, bool csum, bool intent)
 
     // reload heap
     {
-        memset(buffer_area.data()+16*1024, 0xab, 20*1024); // valid data
-        memset(buffer_area.data()+20*1024+64, 0xcc, 4); // invalid data in the second block of the first write
+        memset(buffer_area.data()+16*1024, 0xab, 8*1024); // valid data for object 1
+        memset(buffer_area.data()+24*1024, 0xab, 12*1024); // valid data for object 1 write 1
+        memset(buffer_area.data()+36*1024, 0xab, 4*1024); // valid data for object 1 write 2
+        memset(buffer_area.data()+36*1024+64, 0xcc, 4); // invalid data for object 1 write 2
 
         blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
         uint64_t entries_loaded;
@@ -1025,24 +1098,37 @@ void test_recheck(bool async, bool csum, bool intent)
             calls++;
             if (len)
             {
-                if (!intent)
+                assert(len == 8*1024);
+                if (is_data)
                 {
-                    assert(!is_data);
-                    assert(offset == 16384 && len == 8192 || offset == 24*1024 && len == 12*1024);
-                    memcpy(buf, buffer_area.data()+offset, len);
+                    // intent writes
+                    if (offset == 8*1024) // valid
+                        memcpy(buf, buffer_area.data(), len);
+                    else if (offset == 0x20000+8*1024) // invalid
+                        memset(buf, 0xcc, len);
+                    else if (offset == 0xA0000+16*1024) // valid
+                        memcpy(buf, buffer_area.data(), len);
+                    else if (offset == 0xC0000+16*1024) // invalid
+                        memset(buf, 0xcc, len);
+                    else if (offset == 0xE0000+16*1024) // valid
+                        memcpy(buf, buffer_area.data(), len);
+                    else if (offset == 0x100000+16*1024) // invalid
+                        memset(buf, 0xcc, len);
+                    else
+                        assert(0);
                 }
                 else
                 {
-                    assert(is_data);
-                    assert(offset == 0x20000+8192 && len == 8192 || 0x40000+8192 && len == 12*1024);
-                    memcpy(buf, buffer_area.data() + (offset == 0x20000+8192 ? 16*1024 : 24*1024), len);
+                    assert(offset == 12*1024 || offset == 20*1024 || offset == 28*1024 || offset == 36*1024 ||
+                        offset == 44*1024 || offset == 52*1024);
+                    memcpy(buf, buffer_area.data()+offset, len);
                 }
                 assert(cb);
                 cb();
             }
         }, 1);
         assert(done);
-        assert(calls == (async || intent ? 3 : 1));
+        assert(calls == (async ? 13 : 7));
 
         heap.finish_recheck();
 
@@ -1050,30 +1136,88 @@ void test_recheck(bool async, bool csum, bool intent)
         assert(mod.size() == 1);
         assert(mod[0] == 0);
 
-        // read object 1 - big_write should be there but small_write should be rechecked and removed
+        // check objects
+
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_entry_t *obj = heap.read_entry(oid);
         assert(obj);
-        assert(count_writes(heap, obj) == 1);
-        assert(obj->lsn == 1);
-        assert(obj->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
-        assert(obj->version == 1);
-        assert(obj->big_location(&heap) == 0x20000);
+        assert(count_writes(heap, obj) == 3);
+        assert(obj->lsn == 3);
+        assert(obj->entry_type == BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 3);
 
-        // read object 2 - both writes should be present
         oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
         obj = heap.read_entry(oid);
         assert(obj);
-        assert(count_writes(heap, obj) == (intent ? 3 : 2));
-        assert(obj->lsn == (intent ? 5 : 4));
+        assert(count_writes(heap, obj) == 2);
+        assert(obj->lsn == 5);
+        assert(obj->entry_type == BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 2);
+
+        oid = { .inode = INODE_WITH_POOL(1, 3), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 3);
+        assert(obj->lsn == 9);
         assert(obj->entry_type == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
-        assert(obj->version == (intent ? 3 : 2));
-        assert(obj->small().offset == 8192);
-        assert(obj->small().len == 12*1024);
-        assert(obj->small().location == 24*1024);
+        assert(obj->version == 3);
+        assert(obj->small().offset == 8*1024);
+        assert(obj->small().len == 8*1024);
+        assert(obj->small().location == 20*1024);
+
+        oid = { .inode = INODE_WITH_POOL(1, 4), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 2);
+        assert(obj->lsn == 11);
+        assert(obj->entry_type == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 2);
+        assert(obj->small().offset == 4*1024);
+        assert(obj->small().len == 8*1024);
+        assert(obj->small().location == 28*1024);
+
+        oid = { .inode = INODE_WITH_POOL(1, 5), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 1);
+        assert(obj->lsn == 13);
+        assert(obj->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 1);
+
+        oid = { .inode = INODE_WITH_POOL(1, 6), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 1);
+        assert(obj->lsn == 16);
+        assert(obj->entry_type == BS_HEAP_BIG_INTENT|BS_HEAP_STABLE);
+        assert(obj->version == 1);
+
+        oid = { .inode = INODE_WITH_POOL(1, 7), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(!obj);
+
+        oid = { .inode = INODE_WITH_POOL(1, 8), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 1);
+        assert(obj->lsn == 19);
+        assert(obj->entry_type == BS_HEAP_BIG_INTENT|BS_HEAP_STABLE);
+        assert(obj->version == 2);
+
+        oid = { .inode = INODE_WITH_POOL(1, 9), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 1);
+        assert(obj->lsn == 21); // lsn 20 is inserted for compaction
+        assert(obj->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 1);
+
+        // check space
+
+        assert(check_used_space(heap, dsk, 0));
     }
 
-    printf("OK test_recheck %s %s %s\n", async ? "async" : "sync", csum ? "csum" : "no_csum", intent ? "intent" : "buffered");
+    printf("...OK\n");
 }
 
 void test_corruption()
@@ -2488,14 +2632,10 @@ int main(int narg, char *args[])
     test_compact(false, false);
     test_iterate_compaction();
     test_modify_bitmap();
-    test_recheck(false, true, false);
-    test_recheck(false, false, false);
-    test_recheck(true, true, false);
-    test_recheck(true, false, false);
-    test_recheck(false, true, true);
-    test_recheck(false, false, true);
-    test_recheck(true, true, true);
-    test_recheck(true, false, true);
+    test_recheck(false, true);
+    test_recheck(false, false);
+    test_recheck(true, true);
+    test_recheck(true, false);
     test_corruption();
     test_full_overwrite(true);
     test_full_overwrite(false);
