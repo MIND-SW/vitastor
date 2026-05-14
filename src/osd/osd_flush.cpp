@@ -97,6 +97,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
             {
                 // Will repeer/stop this PG
                 msgr.stop_client(peer_it->second->client_id);
+                return;
             }
         }
     }
