@@ -1049,7 +1049,7 @@ static int coroutine_fn vitastor_co_block_status(BlockDriverState *bs,
     {
         // Get larger allocated extents, possibly with false positives
         uint64_t bmp_pos = (offset-task.offset) / task.bitmap_granularity;
-        uint64_t bmp_end = (offset+bytes-task.offset) / task.bitmap_granularity - bmp_pos;
+        uint64_t bmp_end = (offset+bytes-task.offset) / task.bitmap_granularity;
         while (bmp_pos < bmp_end)
         {
             if (!(bmp_pos & 7) && bmp_end >= bmp_pos+8)
