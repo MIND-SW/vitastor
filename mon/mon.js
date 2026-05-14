@@ -627,7 +627,7 @@ class Mon
                 if (this.state.pg.history[pool_id] &&
                     this.state.pg.history[pool_id][pg])
                 {
-                    pg_history[pg-1] = this.state.pg.history[pool_id][pg];
+                    pg_history[pg-1] = JSON.parse(JSON.stringify(this.state.pg.history[pool_id][pg]));
                 }
             }
             const real_prev_pgs = [];

@@ -102,7 +102,7 @@ function scale_pg_count(prev_pgs, new_pg_count)
     {
         for (let i = prev_pgs.length; i < new_pg_count; i++)
         {
-            prev_pgs[i] = prev_pgs[i % prev_pgs.length];
+            prev_pgs[i] = [ ...prev_pgs[i % prev_pgs.length] ];
         }
     }
     else if (prev_pgs.length > new_pg_count)
