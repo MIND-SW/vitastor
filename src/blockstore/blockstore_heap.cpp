@@ -580,26 +580,11 @@ void blockstore_heap_t::fill_recheck_queue()
             inode_map_iterate(ip.second, [&](heap_list_item_t *li)
             {
                 auto obj = &li->entry;
-                // Add object to recheck queue
-                if (obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_BIG_INTENT)
+                // Recheck only the latest intent_write (if after completed_lsn) or a series of small_writes
+                if ((obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_BIG_INTENT)
+                    && obj->lsn > completed_lsn || obj->type() == BS_HEAP_SMALL_WRITE)
                 {
-                    // Recheck only the latest intent_write
-                    if (obj->lsn > completed_lsn)
-                    {
-                        // Do not recheck if it's already marked as completed in the superblock
-                        recheck_queue.push_back(obj);
-                    }
-                }
-                else
-                {
-                    // Or recheck a series of small_writes
-                    for (auto wr = obj; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
-                    {
-                        if (wr->small().len > 0)
-                        {
-                            recheck_queue.push_back(wr);
-                        }
-                    }
+                    recheck_queue.push_back(obj);
                 }
             });
         }
@@ -868,80 +853,97 @@ void blockstore_heap_t::recheck_full_gc()
     }
 }
 
-void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
+void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *bad_wr)
 {
-    auto free_entry = [&](heap_list_item_t *li)
+    // write entry is invalid, erase it and all newer entries
+    int bad_count = 1;
+    for (auto wr = obj; wr && wr != bad_wr; wr = prev(wr))
     {
-        uint32_t block_num = li->block_num;
-        auto wr_size = li->entry.size;
-        if (li->entry.is_garbage())
-        {
-            garbage_entries--;
-            garbage_memory -= list_item_overhead(wr_size);
-        }
-        live_entries--;
-        live_memory -= list_item_overhead(wr_size);
-        free(li);
-        modify_alloc(block_num, [&](heap_block_info_t & inf)
-        {
-            inf.used_space -= wr_size;
-            bool found = false;
-            for (auto it = inf.entries.begin(); it != inf.entries.end(); it++)
-            {
-                if (*it == li)
-                {
-                    found = true;
-                    inf.entries.erase(it);
-                    break;
-                }
-            }
-            assert(found);
-        });
-        recheck_modified_blocks.insert(block_num);
-    };
-    if (cwr->is_garbage())
-    {
-        // already freed after rechecking one of the previous small_write entries
-        free_entry(list_item(cwr));
+        bad_count++;
     }
-    else if (!calc_checksums(cwr, buf, false))
+    auto prev_wr = prev(bad_wr);
+    if (prev_wr)
     {
-        // write entry is invalid, erase it and mark newer entries with garbage bit
-        auto & pg_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)];
-        auto & inode_idx = pg_idx[cwr->inode];
-        heap_inode_map_t::iterator li_it;
-        heap_list_item_t *li = NULL;
-        inode_map_get(inode_idx, li_it, li, cwr->stripe);
-        int rolled_back = 1;
-        while (li && cwr != &li->entry)
+        fprintf(stderr, "Notice: %u unfinished %s to %jx:%jx v%ju since good lsn %ju, rolling back\n",
+            bad_count, bad_count > 1 ? "writes" : "write", obj->inode, obj->stripe, obj->version, prev_wr->lsn);
+    }
+    else
+    {
+        fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n", obj->inode, obj->stripe);
+    }
+    auto li = list_item(obj);
+    while (li && prev_wr != &li->entry)
+    {
+        auto prev = li->prev;
+        assert(li->entry.type() == bad_wr->type());
+        init_erase_bad_entry(li);
+        li = prev;
+    }
+}
+
+void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
+{
+    assert(st->sent_reads < st->total_reads);
+    while (recheck_in_progress < recheck_queue_depth)
+    {
+        auto wr = st->next_wr;
+        st->next_wr = prev(st->next_wr);
+        uint64_t loc = 0, len = 0;
+        bool from_data = false;
+        if (wr->type() == BS_HEAP_SMALL_WRITE)
         {
-            assert(li->entry.entry_type == cwr->entry_type);
-            auto prev = li->prev;
-            li->next = li->prev = NULL;
-            if (!li->entry.is_garbage())
-            {
-                garbage_entries++;
-                garbage_memory += list_item_overhead(li->entry.size);
-                li->entry.set_garbage();
-            }
-            li = prev;
-            rolled_back++;
+            loc = wr->small().location;
+            len = wr->small().len;
         }
-        assert(li);
-        if (li->prev)
+        else if (wr->type() == BS_HEAP_BIG_INTENT)
         {
-            fprintf(stderr, "Notice: %u unfinished %s to %jx:%jx v%ju since lsn %ju, rolling back\n",
-                rolled_back, rolled_back > 1 ? "writes" : "write", cwr->inode, cwr->stripe, li->prev->entry.version, li->entry.lsn);
-            inode_map_replace(inode_idx, li_it, li->prev);
-            li->prev->next = NULL;
+            auto & bi = wr->big_intent();
+            loc = (uint64_t)bi.block_num * dsk->data_block_size + bi.offset;
+            len = bi.len;
+            from_data = true;
         }
         else
         {
-            fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n",
-                cwr->inode, cwr->stripe);
-            inode_map_erase(pg_idx, inode_idx, li_it, li);
+            assert(wr->type() == BS_HEAP_INTENT_WRITE);
+            auto prev_wr = prev(wr);
+            while (prev_wr && prev_wr->entry_type == wr->entry_type)
+            {
+                // Skip other intent_writes
+                prev_wr = prev(prev_wr);
+            }
+            if (!prev_wr || prev_wr->entry_type != (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)) &&
+                prev_wr->entry_type != (BS_HEAP_BIG_INTENT | (wr->entry_type & BS_HEAP_STABLE)))
+            {
+                fprintf(stderr, "Error: intent_write entry %jx:%jx v%ju l%ju is not written over a big_write\n",
+                    wr->inode, wr->stripe, wr->version, wr->lsn);
+                exit(1);
+            }
+            loc = wr->small().offset + prev_wr->big_location(this);
+            len = wr->small().len;
+            from_data = true;
         }
-        free_entry(li);
+        uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
+        st->sent_reads++;
+        recheck_in_progress++;
+        recheck_pending_reads--;
+        bool is_last = st->sent_reads >= st->total_reads;
+        recheck_cb(from_data, loc, len, buf, [this, st, wr, buf]()
+        {
+            st->checked_reads++;
+            if (!calc_checksums(wr, buf, false))
+                st->bad_wr = !st->bad_wr || st->bad_wr->lsn > wr->lsn ? wr : st->bad_wr;
+            if (st->checked_reads >= st->total_reads)
+            {
+                if (st->bad_wr)
+                    recheck_drop_entries(st->obj, st->bad_wr);
+                recheck_states.erase(st->obj);
+            }
+            free(buf);
+            recheck_in_progress--;
+            recheck_small_writes(NULL, 0);
+        });
+        if (is_last)
+            break;
     }
 }
 
@@ -964,70 +966,47 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         recheck_queue_depth = queue_depth;
     }
     in_recheck = true;
+    while (recheck_pending_reads > 0 && recheck_in_progress < recheck_queue_depth)
+    {
+        for (auto & sp: recheck_states)
+            recheck_start_reads(&sp.second);
+    }
     while (recheck_queue.size() > 0 && recheck_in_progress < recheck_queue_depth)
     {
-        heap_entry_t *wr = recheck_queue.front();
+        heap_entry_t *obj = recheck_queue.front();
         recheck_queue.pop_front();
-        bool from_data = false;
-        uint64_t loc = 0;
-        uint32_t len = 0;
-        if (wr->type() == BS_HEAP_INTENT_WRITE)
+        if (obj->type() == BS_HEAP_SMALL_WRITE && buffer_area)
         {
-            auto prev_wr = prev(wr);
-            while (prev_wr && prev_wr->entry_type == wr->entry_type)
+            // Check this object synchronously
+            heap_entry_t *bad_wr = NULL;
+            for (auto wr = obj; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
             {
-                // Skip other intent_writes
-                prev_wr = prev(prev_wr);
+                fprintf(stderr, "Notice: rechecking %jx:%jx l%ju - %u bytes at %ju in buffer area\n",
+                    wr->inode, wr->stripe, wr->lsn, wr->small().len, wr->small().location);
+                if (!calc_checksums(wr, buffer_area + wr->small().location, false))
+                    bad_wr = wr;
             }
-            if (!prev_wr || prev_wr->entry_type != (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)) &&
-                prev_wr->entry_type != (BS_HEAP_BIG_INTENT | (wr->entry_type & BS_HEAP_STABLE)))
-            {
-                fprintf(stderr, "Error: intent_write entry %jx:%jx v%ju l%ju is not written over a big_write\n",
-                    wr->inode, wr->stripe, wr->version, wr->lsn);
-                exit(1);
-            }
-            loc = wr->small().offset + prev_wr->big_location(this);
-            len = wr->small().len;
-            from_data = true;
-        }
-        else if (wr->type() == BS_HEAP_BIG_INTENT)
-        {
-            auto & bi = wr->big_intent();
-            loc = (uint64_t)bi.block_num * dsk->data_block_size + bi.offset;
-            len = bi.len;
-            from_data = true;
+            if (bad_wr)
+                recheck_drop_entries(obj, bad_wr);
         }
         else
         {
-            assert(wr->type() == BS_HEAP_SMALL_WRITE);
-            loc = wr->small().location;
-            len = wr->small().len;
-        }
-        if (log_level > 5)
-        {
-            fprintf(stderr, "Notice: rechecking %jx:%jx l%ju - %u bytes at %ju in %s area\n",
-                wr->inode, wr->stripe, wr->lsn, len, loc, from_data ? "data" : "buffer");
-        }
-        if (!from_data && buffer_area)
-        {
-            recheck_buffer(wr, buffer_area+loc);
-        }
-        else
-        {
-            recheck_in_progress++;
-            uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
-            recheck_cb(from_data, loc, len, buf, [this, wr, buf]()
-            {
-                recheck_buffer(wr, buf);
-                free(buf);
-                recheck_in_progress--;
-                recheck_small_writes(NULL, 0);
-            });
+            // Recheck will be asynchronous. Create state and start it
+            auto & st = recheck_states[obj];
+            st.obj = obj;
+            st.next_wr = obj;
+            st.total_reads = 1;
+            if (obj->type() == BS_HEAP_SMALL_WRITE)
+                for (auto wr = prev(obj); wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
+                    st.total_reads++;
+            recheck_pending_reads += st.total_reads;
+            recheck_start_reads(&st);
         }
     }
     in_recheck = false;
     if (!recheck_queue.size() && !recheck_in_progress)
     {
+        assert(!recheck_states.size());
         auto cb = std::move(recheck_cb);
         recheck_queue_depth = 0;
         if (cb)

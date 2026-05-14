@@ -158,6 +158,16 @@ struct heap_li_equal
     }
 };
 
+struct heap_recheck_state_t
+{
+    heap_entry_t *obj = NULL;
+    heap_entry_t *next_wr = NULL;
+    size_t total_reads = 0;
+    size_t sent_reads = 0;
+    size_t checked_reads = 0;
+    heap_entry_t *bad_wr = NULL;
+};
+
 using i64hash_t = robin_hood::hash<uint64_t>;
 using heap_inode_map_t = robin_hood::unordered_flat_set<heap_list_item_t*, heap_li_hash, heap_li_equal, 88>;
 using heap_block_index_t = robin_hood::unordered_flat_map<uint64_t,
@@ -211,6 +221,8 @@ class blockstore_heap_t
     std::vector<heap_list_item_t*> postponed_items;
     std::set<uint32_t> recheck_modified_blocks;
     std::deque<heap_entry_t*> recheck_queue;
+    std::map<heap_entry_t*, heap_recheck_state_t> recheck_states;
+    size_t recheck_pending_reads = 0;
     int recheck_in_progress = 0;
     bool in_recheck = false;
     std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> recheck_cb;
@@ -219,6 +231,8 @@ class blockstore_heap_t
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
     bool validate_object(heap_entry_t *obj);
     void fill_recheck_queue();
+    void recheck_drop_entries(heap_entry_t *obj, heap_entry_t *bad_wr);
+    void recheck_start_reads(heap_recheck_state_t *st);
     int mark_used_blocks();
     void init_free_bad_entry(heap_entry_t *wr);
     void init_erase_bad_entry(heap_list_item_t *li);
