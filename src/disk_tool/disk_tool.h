@@ -52,7 +52,6 @@ struct disk_tool_t
     bool all = false, json = false, now = false;
     bool dump_with_blocks = false, dump_with_data = false;
     bool dump_as_old = false;
-    bool skip_obsolete = false;
     int log_level = 1;
     double meta_reserve_multiple = 2;
     uint64_t meta_reserve_min_size = (uint64_t)1024*1024*1024;
@@ -138,8 +137,6 @@ struct disk_tool_t
     int resize_write_new_journal();
     void remap_big_write(heap_entry_t *wr);
     void remap_small_write(heap_entry_t *wr);
-    void fill_old_clean_entry(blockstore_heap_t *heap, heap_entry_t *big_wr);
-    void fill_old_journal_entry(blockstore_heap_t *heap, heap_entry_t *wr);
     int resize_rebuild_meta();
     int resize_write_new_meta();
     void free_new_meta();
