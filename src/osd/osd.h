@@ -19,7 +19,6 @@
 #include "blockstore.h"
 #include "ringloop.h"
 #include "timerfd_manager.h"
-#include "epoll_manager.h"
 #include "osd_peering_pg.h"
 #include "messenger.h"
 #include "etcd_state_client.h"
@@ -210,9 +209,8 @@ class osd_t
     void *zero_buffer = NULL;
     uint64_t zero_buffer_size = 0;
     uint32_t bs_block_size, bs_bitmap_granularity, clean_entry_bitmap_size;
-    ring_loop_t *ringloop = NULL;
+    ring_loop_i *ringloop = NULL;
     timerfd_manager_t *tfd = NULL;
-    epoll_manager_t *epmgr = NULL;
 
     int listening_port = 0;
     std::vector<std::string> bind_addresses;
@@ -392,7 +390,7 @@ class osd_t
     }
 
 public:
-    osd_t(const json11::Json & config, ring_loop_t *ringloop);
+    osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd);
     ~osd_t();
     void force_stop(int exitcode);
     bool shutdown();

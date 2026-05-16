@@ -4,10 +4,9 @@ project(vitastor)
 
 ### Test stubs
 
-# stub_osd, stub_bench, osd_test
+# stub_osd, stub_bench
 add_executable(stub_osd stub_osd.cpp ../util/rw_blocking.cpp ../util/addr_util.cpp)
 add_executable(stub_bench stub_bench.cpp ../util/rw_blocking.cpp ../util/addr_util.cpp)
-add_executable(osd_test osd_test.cpp ../util/rw_blocking.cpp ../util/addr_util.cpp)
 
 # bindiff
 add_executable(bindiff

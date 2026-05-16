@@ -15,21 +15,18 @@
 #include "str_util.h"
 #include "json_util.h"
 
-osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
+osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd)
 {
     zero_buffer_size = 1<<20;
     zero_buffer = malloc_or_die(zero_buffer_size);
     memset(zero_buffer, 0, zero_buffer_size);
 
     this->ringloop = ringloop;
+    this->tfd = tfd;
 
     this->cli_config = config.object_items();
     this->file_config = msgr.read_config(this->cli_config);
     parse_config(true);
-
-    epmgr = new epoll_manager_t(ringloop);
-    // FIXME: Use timerfd_interval based directly on io_uring
-    this->tfd = epmgr->tfd;
 
     if (json_is_true(this->config["osd_memlock"]))
     {
@@ -99,7 +96,6 @@ osd_t::~osd_t()
     }
     ringloop->unregister_consumer(&consumer);
     ringloop->unregister_consumer(&init_consumer);
-    delete epmgr;
     if (bs)
         delete bs;
 #ifdef WITH_RDMACM
@@ -398,7 +394,7 @@ void osd_t::bind_socket()
         {
             int listen_fd = create_and_bind_socket(bind_address, listening_port ? listening_port : bind_port, listen_backlog, &listening_port);
             fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
-            epmgr->set_fd_handler(listen_fd, false, [this](int fd, int events)
+            tfd->set_fd_handler(listen_fd, false, [this](int fd, int events)
             {
                 msgr.accept_connections(fd);
             });

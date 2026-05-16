@@ -16,6 +16,7 @@ timerfd_manager_t::timerfd_manager_t(std::function<void(int, bool, std::function
 {
     this->set_fd_handler = set_fd_handler;
     wait_state = 0;
+    // FIXME: Use timerfd_interval based directly on io_uring
     if (set_fd_handler)
     {
         timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);

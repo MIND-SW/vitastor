@@ -179,7 +179,7 @@ protected:
 
 public:
     timerfd_manager_t *tfd = NULL;
-    ring_loop_t *ringloop = NULL;
+    ring_loop_i *ringloop = NULL;
     bool has_sendmsg_zc = false;
     // osd_num_t is only for logging and asserts
     uint64_t next_client_id = 1;

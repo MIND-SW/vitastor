@@ -155,9 +155,6 @@ public:
     void list_inode(inode_t inode, uint64_t min_offset, uint64_t max_offset, int max_parallel_pgs, std::function<void(
         int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects)> pg_callback);
 
-    //inline uint32_t get_bs_bitmap_granularity() { return st_cli.global_bitmap_granularity; }
-    //inline uint64_t get_bs_block_size() { return st_cli.global_block_size; }
-
 #ifndef __MOCK__
 protected:
 #endif

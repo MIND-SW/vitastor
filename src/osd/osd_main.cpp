@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#include "epoll_manager.h"
 #include "osd.h"
 
 #include <sys/prctl.h>
@@ -63,13 +64,15 @@ int main(int narg, char *args[])
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);
     ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
-    osd = new osd_t(config, ringloop);
+    epoll_manager_t *epmgr = new epoll_manager_t(ringloop);
+    osd = new osd_t(config, ringloop, epmgr->tfd);
     while (1)
     {
         ringloop->loop();
         ringloop->wait();
     }
     delete osd;
+    delete epmgr;
     delete ringloop;
     return 0;
 }
