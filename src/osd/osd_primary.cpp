@@ -435,24 +435,33 @@ pg_osd_set_state_t *osd_t::mark_object_corrupted(pg_t & pg, object_id oid,
 }
 
 // Mark the object as partially updated (probably due to a ENOSPC)
-pg_osd_set_state_t *osd_t::mark_partial_write(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,
-    osd_rmw_stripe_t *stripes, bool ref)
+pg_osd_set_state_t *osd_t::mark_partial_write(pg_t & pg, osd_op_t *cur_op)
 {
-    return mark_object(pg, oid, prev_object_state, ref, [stripes](pg_osd_set_t & new_set)
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    return mark_object(pg, op_data->oid, op_data->object_state, true, [&](pg_osd_set_t & new_set)
     {
         // Mark object chunk(s) as outdated
         int changes = 0;
-        for (auto chunk_it = new_set.begin(); chunk_it != new_set.end(); )
+        for (auto & chunk: new_set)
         {
-            auto & chunk = *chunk_it;
-            if (stripes[chunk.role].osd_num == chunk.osd_num &&
-                stripes[chunk.role].read_error &&
-                chunk.loc_bad != LOC_OUTDATED)
+            if (chunk.loc_bad != LOC_OUTDATED)
             {
-                changes++;
-                chunk.loc_bad = LOC_OUTDATED;
+                bool success = false;
+                for (int i = 0; i < op_data->n_subops; i++)
+                {
+                    if (op_data->subops[i].osd_num == chunk.osd_num &&
+                        op_data->subops[i].reply.hdr.retval == op_data->subops[i].req.sec_rw.len)
+                    {
+                        success = true;
+                        break;
+                    }
+                }
+                if (!success)
+                {
+                    changes++;
+                    chunk.loc_bad = LOC_OUTDATED;
+                }
             }
-            chunk_it++;
         }
         return changes;
     });

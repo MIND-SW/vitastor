@@ -276,6 +276,7 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
 
 bool osd_t::submit_to_osd(osd_op_t *subop, osd_num_t osd_num)
 {
+    subop->osd_num = osd_num;
     auto peer_it = msgr.osd_peers.find(osd_num);
     if (peer_it != msgr.osd_peers.end())
     {
@@ -489,8 +490,11 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     }
     if ((op_data->errors + op_data->done) >= op_data->n_subops)
     {
-        delete[] op_data->subops;
-        op_data->subops = NULL;
+        if (!op_data->errors || !op_data->done || opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE)
+        {
+            delete[] op_data->subops;
+            op_data->subops = NULL;
+        }
         op_data->st++;
         if (cur_op->req.hdr.opcode == OSD_OP_READ)
         {
@@ -641,45 +645,47 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
     osd_op_t *subops = new osd_op_t[n_osds];
     op_data->subops = subops;
     robin_hood::unordered_flat_map<uint64_t, osd_client_t*>::iterator peer_it;
+    int subop_idx = 0;
     for (int i = 0; i < n_osds; i++)
     {
         osd_num_t sync_osd = op_data->dirty_osds[i];
+        osd_op_t *subop = &subops[subop_idx];
         if (sync_osd == this->osd_num)
         {
-            clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
-            subops[i].op_type = (uint64_t)cur_op;
-            subops[i].bs_op = new blockstore_op_t({
+            clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
+            subop->op_type = (uint64_t)cur_op;
+            subop->bs_op = new blockstore_op_t({
                 .opcode = BS_OP_SYNC,
-                .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
+                .callback = [subop, this](blockstore_op_t *bs_subop)
                 {
                     handle_primary_bs_subop(subop);
                 },
             });
-            bs->enqueue_op(subops[i].bs_op);
+            bs->enqueue_op(subop->bs_op);
+            subop_idx++;
         }
         else if ((peer_it = msgr.osd_peers.find(sync_osd)) != msgr.osd_peers.end())
         {
-            subops[i].op_type = OSD_OP_OUT;
-            subops[i].client_id = peer_it->second->client_id;
-            subops[i].req = (osd_any_op_t){ .sec_sync = {
+            subop->op_type = OSD_OP_OUT;
+            subop->osd_num = sync_osd;
+            subop->client_id = peer_it->second->client_id;
+            subop->req = (osd_any_op_t){ .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .opcode = OSD_OP_SEC_SYNC,
                 },
                 .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
-            subops[i].callback = [cur_op, this](osd_op_t *subop)
+            subop->callback = [cur_op, this](osd_op_t *subop)
             {
                 handle_primary_subop(subop, cur_op);
             };
-            msgr.outbox_push(&subops[i]);
-        }
-        else
-        {
-            op_data->n_subops--;
+            msgr.outbox_push(subop);
+            subop_idx++;
         }
     }
-    if (op_data->n_subops <= 0)
+    op_data->n_subops = subop_idx;
+    if (subop_idx <= 0)
     {
         delete[] op_data->subops;
         op_data->subops = NULL;

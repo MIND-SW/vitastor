@@ -157,6 +157,7 @@ struct __attribute__((visibility("default"))) osd_op_t
     timespec tv_begin = { 0 }, tv_end = { 0 };
     uint64_t op_type = OSD_OP_IN;
     uint64_t client_id = 0;
+    osd_num_t osd_num = 0;
     osd_any_op_t req;
     osd_any_reply_t reply;
     blockstore_op_t *bs_op = NULL;

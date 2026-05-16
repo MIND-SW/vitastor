@@ -263,10 +263,15 @@ resume_12:
             else
             {
                 pg.ver_override.erase(op_data->oid);
-                mark_partial_write(pg, op_data->oid, op_data->object_state, op_data->stripes, true);
+                mark_partial_write(pg, cur_op);
                 pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
                 return;
             }
+        }
+        if (op_data->subops)
+        {
+            delete[] op_data->subops;
+            op_data->subops = NULL;
         }
         pg.ver_override.erase(op_data->oid);
         deref_object_state(pg, &op_data->object_state, true);
