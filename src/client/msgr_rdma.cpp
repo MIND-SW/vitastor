@@ -794,3 +794,16 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
     } while (event_count > 0);
     handle_immediate_ops();
 }
+
+void osd_messenger_t::destroy_rdma_conn(msgr_rdma_connection_t *rdma_conn)
+{
+    if (rdma_conn->cmid)
+    {
+        auto rdma_it = rdmacm_connections.find(rdma_conn->cmid);
+        if (rdma_it != rdmacm_connections.end() && rdma_it->second->rdma_conn == rdma_conn)
+        {
+            rdmacm_connections.erase(rdma_it);
+        }
+    }
+    delete rdma_conn;
+}

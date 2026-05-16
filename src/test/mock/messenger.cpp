@@ -57,3 +57,7 @@ json11::Json::object osd_messenger_t::merge_configs(const json11::Json::object &
 {
     return cli_config;
 }
+
+void osd_messenger_t::destroy_rdma_conn(msgr_rdma_connection_t *rdma_conn)
+{
+}

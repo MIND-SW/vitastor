@@ -5,9 +5,6 @@
 #include <assert.h>
 
 #include "messenger.h"
-#ifdef WITH_RDMA
-#include "msgr_rdma.h"
-#endif
 
 void osd_client_t::cancel_ops()
 {
@@ -92,23 +89,11 @@ void osd_messenger_t::stop_client(uint64_t client_id, bool force_delete)
             osd_peers.erase(osd_it);
         }
     }
-#ifdef WITH_RDMA
-    if (cl->rdma_conn && cl->rdma_conn->cmid)
-    {
-        auto rdma_it = rdmacm_connections.find(cl->rdma_conn->cmid);
-        if (rdma_it != rdmacm_connections.end() && rdma_it->second == cl)
-        {
-            rdmacm_connections.erase(rdma_it);
-        }
-    }
-#endif
-#ifndef __MOCK__
     if (cl->connect_timeout_id >= 0)
     {
         tfd->clear_timer(cl->connect_timeout_id);
         cl->connect_timeout_id = -1;
     }
-#endif
     if (cl->in_osd_num && break_pg_locks)
     {
         // Break PG locks
@@ -143,9 +128,7 @@ void osd_messenger_t::destroy_client(osd_client_t *cl)
     clients.erase(cl->client_id);
     if (cl->peer_fd >= 0)
     {
-#ifndef __MOCK__
         tfd->set_fd_handler(cl->peer_fd, false, NULL);
-#endif
         for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
         {
             if (*rit == cl->client_id)
@@ -164,6 +147,13 @@ void osd_messenger_t::destroy_client(osd_client_t *cl)
         }
         clients_by_fd.erase(cl->peer_fd);
     }
+#ifdef WITH_RDMA
+    if (cl->rdma_conn)
+    {
+        destroy_rdma_conn(cl->rdma_conn);
+        cl->rdma_conn = NULL;
+    }
+#endif
     delete cl;
 }
 
@@ -196,13 +186,4 @@ osd_client_t::~osd_client_t()
             delete op;
         }
     }
-#ifndef __MOCK__
-#ifdef WITH_RDMA
-    if (rdma_conn)
-    {
-        delete rdma_conn;
-        rdma_conn = NULL;
-    }
-#endif
-#endif
 }

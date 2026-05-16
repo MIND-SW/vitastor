@@ -259,6 +259,7 @@ protected:
     bool init_recv_rdma(osd_client_t *cl);
     void handle_rdma_events(msgr_rdma_context_t *rdma_context);
     msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);
+    void destroy_rdma_conn(msgr_rdma_connection_t *rdma_conn);
 #endif
 #ifdef WITH_RDMACM
     void handle_rdmacm_events();
