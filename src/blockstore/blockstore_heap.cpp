@@ -883,7 +883,8 @@ void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *ba
 
 void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
 {
-    assert(st->sent_reads < st->total_reads);
+    if (st->sent_reads >= st->total_reads)
+        return;
     while (recheck_in_progress < recheck_queue_depth)
     {
         auto wr = st->next_wr;
