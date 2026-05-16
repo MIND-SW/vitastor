@@ -6,6 +6,15 @@
 #include <assert.h>
 #include "cluster_client_impl.h"
 
+class cluster_client_test_t
+{
+public:
+    static void continue_ops(cluster_client_t *cli)
+    {
+        cli->continue_ops(cli->client_retry_interval);
+    }
+};
+
 void configure_single_pg_pool(cluster_client_t *cli)
 {
     cli->st_cli.parse_state((etcd_kv_t){
@@ -260,7 +269,7 @@ void test1()
 
     pretend_disconnected(cli, 1);
     pretend_connected(cli, 1);
-    cli->continue_ops(cli->client_retry_interval);
+    cluster_client_test_t::continue_ops(cli);
 
     // Check replay
     {
@@ -323,7 +332,7 @@ void test1()
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), -EPIPE);
     check_disconnected(cli, 1);
     pretend_connected(cli, 1);
-    cli->continue_ops(cli->client_retry_interval);
+    cluster_client_test_t::continue_ops(cli);
     check_op_count(cli, 1, 1);
     can_complete(r1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
@@ -342,7 +351,7 @@ void test1()
     check_completed(r1);
     check_disconnected(cli, 1);
     pretend_connected(cli, 1);
-    cli->continue_ops(cli->client_retry_interval);
+    cluster_client_test_t::continue_ops(cli);
     check_op_count(cli, 1, 1);
     pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x1000), 0);
     check_op_count(cli, 1, 1);

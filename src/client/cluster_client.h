@@ -83,9 +83,6 @@ class writeback_cache_t;
 // FIXME: Split into public and private interfaces
 class __attribute__((visibility("default"))) cluster_client_t
 {
-#ifdef __MOCK__
-public:
-#endif
     timerfd_manager_t *tfd = NULL;
     ring_loop_t *ringloop = NULL;
 
@@ -155,12 +152,9 @@ public:
     void list_inode(inode_t inode, uint64_t min_offset, uint64_t max_offset, int max_parallel_pgs, std::function<void(
         int status, int pgs_left, pg_num_t pg_num, std::set<object_id>&& objects)> pg_callback);
 
-#ifndef __MOCK__
 protected:
-#endif
     void continue_ops(int time_passed = 0);
 
-protected:
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
     bool affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num);
 
@@ -201,4 +195,5 @@ protected:
     osd_num_t select_nearest_osd(const std::vector<osd_num_t> & osds);
 
     friend class writeback_cache_t;
+    friend class cluster_client_test_t;
 };

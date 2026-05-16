@@ -15,6 +15,7 @@ add_executable(bindiff
 
 # stub_uring_osd
 add_executable(stub_uring_osd
+	EXCLUDE_FROM_ALL
 	stub_uring_osd.cpp
 )
 target_link_libraries(stub_uring_osd
