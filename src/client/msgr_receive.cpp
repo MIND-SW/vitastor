@@ -2,6 +2,7 @@
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
 #include "messenger.h"
+#include "msgr_iothread.h"
 
 void osd_messenger_t::read_requests()
 {

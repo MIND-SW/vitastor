@@ -129,43 +129,7 @@ struct osd_op_stats_t
     uint64_t subop_stat_count[OSD_OP_MAX+1] = { 0 };
 };
 
-#include <mutex>
-#include <condition_variable>
-#include <thread>
-
-#ifdef __MOCK__
 class msgr_iothread_t;
-#else
-struct iothread_sqe_t
-{
-    io_uring_sqe sqe;
-    ring_data_t data;
-};
-
-class msgr_iothread_t
-{
-protected:
-    ring_loop_t ring;
-    ring_loop_t *outer_loop = NULL;
-    ring_data_t *outer_loop_data = NULL;
-    int eventfd = -1;
-    bool stopped = false;
-    std::mutex mu;
-    std::condition_variable cond;
-    std::vector<iothread_sqe_t> queue;
-    std::thread thread;
-
-    void run();
-public:
-
-    msgr_iothread_t();
-    ~msgr_iothread_t();
-
-    void add_sqe(io_uring_sqe & sqe);
-    void stop();
-    void add_to_ringloop(ring_loop_t *outer_loop);
-};
-#endif
 
 #ifdef WITH_RDMA
 struct rdma_event_channel;
@@ -234,6 +198,7 @@ public:
     osd_op_stats_t stats, recovery_stats;
 
     void init();
+    void init_iothreads();
     void parse_config(const json11::Json & config);
     void connect_peer(uint64_t osd_num, json11::Json peer_state);
     void stop_client(uint64_t client_id, bool force_delete = false);
@@ -246,6 +211,7 @@ public:
     void read_requests();
     void send_replies();
     void accept_connections(int listen_fd);
+    void destroy_iothreads();
     ~osd_messenger_t();
 
     static json11::Json::object read_config(const json11::Json & config);

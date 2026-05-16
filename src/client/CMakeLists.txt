@@ -12,7 +12,7 @@ if (RDMACM_LIBRARIES)
 	set(MSGR_RDMACM "msgr_rdmacm.cpp")
 endif (RDMACM_LIBRARIES)
 add_library(vitastor_common STATIC
-	../util/epoll_manager.cpp etcd_state_client.cpp messenger.cpp ../util/addr_util.cpp
+	../util/epoll_manager.cpp etcd_state_client.cpp messenger.cpp msgr_iothread.cpp ../util/addr_util.cpp
 	msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ../util/ringloop.cpp ../../json11/json11.cpp
 	http_client.cpp osd_ops.cpp pg_states.cpp ../util/timerfd_manager.cpp ../util/str_util.cpp ../util/json_util.cpp ${MSGR_RDMA} ${MSGR_RDMACM}
 )

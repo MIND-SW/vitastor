@@ -6,6 +6,7 @@
 #include <sys/epoll.h>
 
 #include "messenger.h"
+#include "msgr_iothread.h"
 
 void osd_messenger_t::outbox_push(osd_op_t *cur_op)
 {
