@@ -318,19 +318,7 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                     }
                     handle_primary_subop(subop, cur_op);
                 };
-                auto peer_it = msgr.osd_peers.find(subop_osd_num);
-                if (peer_it != msgr.osd_peers.end())
-                {
-                    subop->client_id = peer_it->second->client_id;
-                    msgr.outbox_push(subop);
-                }
-                else
-                {
-                    // Fail it immediately
-                    subop->client_id = 0;
-                    subop->reply.hdr.retval = -EPIPE;
-                    ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
-                }
+                submit_to_osd(subop, subop_osd_num);
                 subop_idx++;
             }
             prev = i+1;

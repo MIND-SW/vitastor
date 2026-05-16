@@ -270,20 +270,27 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
         {
             handle_primary_subop(subop, cur_op);
         };
-        auto peer_it = msgr.osd_peers.find(si->osd_num);
-        if (peer_it != msgr.osd_peers.end())
-        {
-            subop->client_id = peer_it->second->client_id;
-            msgr.outbox_push(subop);
-        }
-        else
-        {
-            // Fail it immediately
-            subop->client_id = 0;
-            subop->reply.hdr.retval = -EPIPE;
-            ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
-        }
+        submit_to_osd(subop, si->osd_num);
     }
+}
+
+bool osd_t::submit_to_osd(osd_op_t *subop, osd_num_t osd_num)
+{
+    auto peer_it = msgr.osd_peers.find(osd_num);
+    if (peer_it != msgr.osd_peers.end())
+    {
+        subop->client_id = peer_it->second->client_id;
+        msgr.outbox_push(subop);
+    }
+    else
+    {
+        // Fail it immediately
+        subop->client_id = 0;
+        subop->reply.hdr.retval = -EPIPE;
+        ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
+        return false;
+    }
+    return true;
 }
 
 static uint64_t bs_op_to_osd_op[] = {
@@ -616,19 +623,7 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
             {
                 handle_primary_subop(subop, cur_op);
             };
-            auto peer_it = msgr.osd_peers.find(chunk.osd_num);
-            if (peer_it != msgr.osd_peers.end())
-            {
-                subops[i].client_id = peer_it->second->client_id;
-                msgr.outbox_push(&subops[i]);
-            }
-            else
-            {
-                // Fail it immediately
-                subops[i].client_id = 0;
-                subops[i].reply.hdr.retval = -EPIPE;
-                ringloop->set_immediate([subop = &subops[i]]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
-            }
+            submit_to_osd(&subops[i], chunk.osd_num);
         }
     }
 }
@@ -739,19 +734,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
             {
                 handle_primary_subop(subop, cur_op);
             };
-            auto peer_it = msgr.osd_peers.find(stab_osd.osd_num);
-            if (peer_it != msgr.osd_peers.end())
-            {
-                subops[i].client_id = peer_it->second->client_id;
-                msgr.outbox_push(&subops[i]);
-            }
-            else
-            {
-                // Fail it immediately
-                subops[i].client_id = 0;
-                subops[i].reply.hdr.retval = -EPIPE;
-                ringloop->set_immediate([subop = &subops[i]]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
-            }
+            submit_to_osd(&subops[i], stab_osd.osd_num);
         }
     }
 }
@@ -837,8 +820,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
                     op_data->oid.inode, op_data->oid.stripe | role, op_data->target_ver-1
                 );
 #endif
-                subop->client_id = msgr.osd_peers.at(osd_set[role])->client_id;
-                msgr.outbox_push(subop);
+                submit_to_osd(subop, osd_set[role]);
             }
             i++;
         }

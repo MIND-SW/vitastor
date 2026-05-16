@@ -214,17 +214,8 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
             handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pool_id, pg_num, fb, peer_osd, op->reply.hdr.retval);
             delete op;
         };
-        auto peer_it = msgr.osd_peers.find(peer_osd);
-        if (peer_it != msgr.osd_peers.end())
+        if (!submit_to_osd(op, peer_osd))
         {
-            op->client_id = peer_it->second->client_id;
-            msgr.outbox_push(op);
-        }
-        else
-        {
-            // Fail it immediately
-            op->reply.hdr.retval = -EPIPE;
-            op->callback(op);
             return false;
         }
     }

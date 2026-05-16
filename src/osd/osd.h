@@ -366,6 +366,7 @@ class osd_t
         osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read);
     void submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
         osd_rmw_stripe_t *si, bool wr, inode_t inode, uint64_t op_version);
+    bool submit_to_osd(osd_op_t *subop, osd_num_t osd_num);
     void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set);
     void submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_delete, int chunks_to_delete_count);
     void submit_primary_sync_subops(osd_op_t *cur_op);
