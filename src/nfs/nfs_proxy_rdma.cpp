@@ -586,8 +586,8 @@ send_again:
         }
         // Estimate reply WR count, create WR and SGE arrays
         xdr_write_chunk *reply_chunk = rop->in_rdma_msg.rdma_body.rdma_msg.rdma_reply;
-        int reply_chunk_wr_count = (reply_chunk ? reply_chunk->target.target_len : 0);
-        uint32_t wr_count = 1 + (chunk_iov ? 1 : 0) + (reply_chunk ? reply_chunk_wr_count : 0);
+        uint32_t reply_chunk_wr_count = (reply_chunk ? reply_chunk->target.target_len : 0);
+        uint32_t wr_count = 1 + (chunk_iov ? 1 : 0) + reply_chunk_wr_count;
         if (wr_count > ctx->max_send_wr)
         {
             fprintf(stderr, "Reply fragmentation (%u) exceeds max_send_wr (%u), sending ERR_CHUNK\n", wr_count, ctx->max_send_wr);
@@ -622,7 +622,7 @@ chunk_error:
         {
             size_t reply_chunk_len = 0;
             size_t left = msg_size;
-            for (uint32_t i = 0; i < reply_chunk->target.target_len; i++)
+            for (uint32_t i = 0; i < reply_chunk_wr_count; i++)
             {
                 reply_chunk_len += reply_chunk->target.target_val[i].length;
                 if (reply_chunk->target.target_val[i].length > left)
@@ -653,7 +653,7 @@ chunk_error:
         }
         ibv_sge sges[wr_count];
         ibv_send_wr wrs[wr_count];
-        int wr_pos = 0;
+        uint32_t wr_pos = 0;
         // Use a buffer from rdma_malloc for the reply
         assert(!rop->buffer);
         rop->buffer = rdma_malloc_alloc(conn_dev->alloc, hdr_size+msg_size);
@@ -685,7 +685,7 @@ chunk_error:
         if (reply_chunk)
         {
             size_t pos = hdr_size;
-            for (uint32_t i = 0; i < reply_chunk->target.target_len && pos < msg_size; i++)
+            for (uint32_t i = 0; i < reply_chunk_wr_count && pos < msg_size; i++)
             {
                 uint32_t len = (reply_chunk->target.target_val[i].length < msg_size-pos
                     ? reply_chunk->target.target_val[i].length : msg_size-pos);
