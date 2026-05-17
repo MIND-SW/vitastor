@@ -120,7 +120,7 @@ struct cli_raw_ls_t
             fprintf(stderr, "Selected PG %u\n", pg_num);
         }
         parent->cli->init_msgr();
-        osd_list = std::vector(osds.begin(), osds.end());
+        osd_list = std::vector<osd_num_t>(osds.begin(), osds.end());
         osd_pos = 0;
         state = 1;
     resume_1:
