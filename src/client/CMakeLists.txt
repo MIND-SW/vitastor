@@ -98,6 +98,7 @@ add_executable(test_cluster_client
 	pg_states.cpp osd_ops.cpp cluster_client.cpp cluster_client_list.cpp cluster_client_wb.cpp msgr_op.cpp ../test/mock/messenger.cpp msgr_stop.cpp
 	etcd_state_client.cpp ../util/timerfd_manager.cpp ../util/addr_util.cpp ../util/str_util.cpp ../util/json_util.cpp ../../json11/json11.cpp
 )
+target_link_libraries(test_cluster_client ${LIBURING_LIBRARIES})
 target_compile_definitions(test_cluster_client PUBLIC -D__MOCK__)
 target_include_directories(test_cluster_client BEFORE PUBLIC ${CMAKE_SOURCE_DIR}/src/test/mock)
 add_dependencies(build_tests test_cluster_client)
