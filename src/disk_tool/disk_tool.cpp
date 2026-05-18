@@ -427,6 +427,9 @@ int main(int argc, char *argv[])
             self.dsk.open_journal();
             self.dsk.calc_lengths();
             self.dsk.close_all();
+            self.new_meta_device = self.dsk.meta_device;
+            self.new_meta_offset = self.dsk.meta_offset;
+            self.new_meta_len = self.dsk.meta_area_size;
         }
         std::string json_err;
         json11::Json meta = json11::Json::parse(read_all_fd(0), json_err);

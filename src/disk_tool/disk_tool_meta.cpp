@@ -589,6 +589,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
 
 int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
 {
+    assert(new_meta_len >= sizeof(blockstore_meta_header_v3_t));
     new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
     memset(new_meta_buf, 0, new_meta_len);
     new_meta_hdr = (blockstore_meta_header_v3_t *)new_meta_buf;
@@ -606,9 +607,9 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
         : (meta["data_csum_type"].string_value() == "crc32c"
             ? BLOCKSTORE_CSUM_CRC32C
             : BLOCKSTORE_CSUM_NONE);
+    new_meta_hdr->meta_area_size = new_meta_len;
     new_meta_hdr->csum_block_size = meta["csum_block_size"].uint64_value();
     new_meta_hdr->header_csum = crc32c(0, new_meta_hdr, sizeof(blockstore_meta_header_v3_t));
-    new_meta_hdr->meta_area_size = new_meta_len;
     new_clean_entry_bitmap_size = (new_meta_hdr->data_block_size / new_meta_hdr->bitmap_granularity + 7) / 8;
     new_clean_entry_size = 0;
     new_entries_per_block = 0;
