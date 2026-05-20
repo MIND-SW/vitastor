@@ -264,6 +264,11 @@ resume_12:
             {
                 pg.ver_override.erase(op_data->oid);
                 mark_partial_write(pg, cur_op);
+                if (op_data->subops)
+                {
+                    delete[] op_data->subops;
+                    op_data->subops = NULL;
+                }
                 pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
                 return;
             }
