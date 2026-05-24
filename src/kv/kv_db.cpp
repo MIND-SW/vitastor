@@ -1613,6 +1613,7 @@ void kv_op_t::create_root()
         return;
     }
     auto new_offset = db->alloc_block();
+    auto new_next = db->next_free;
     assert(new_offset == 0);
     auto blk = &db->block_cache[0];
     blk->usage = db->usage_counter;
@@ -1628,6 +1629,11 @@ void kv_op_t::create_root()
         if (res == -EINTR)
         {
             db->clear_allocation_block(blk->offset);
+            if (db->next_free == new_next)
+            {
+                // When retrying create_root, reset the position
+                db->next_free = 0;
+            }
             auto blk_offset = blk->offset;
             del_block_level(db, blk);
             db->block_cache.erase(blk_offset);
