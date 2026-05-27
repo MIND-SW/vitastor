@@ -746,7 +746,7 @@ close_err0:
                 }
                 if (write_entry["block_csums"].is_string() && wr->get_checksums(&heap))
                 {
-                    fromhexstr(write_entry["block_csums"].string_value(), heap.get_csum_size(wr), wr->get_ext_bitmap(&heap));
+                    fromhexstr(write_entry["block_csums"].string_value(), heap.get_csum_size(wr), wr->get_checksums(&heap));
                 }
                 if (write_entry["data_crc32c"].is_string() && wr->get_checksum(&heap))
                 {
