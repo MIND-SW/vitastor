@@ -258,8 +258,7 @@ void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
             if (!sec_check_pg_lock(cl->in_osd_num, ov[i].oid, cur_op->req.sec_read_bmp.flags))
             {
                 free(reply_buf);
-                cur_op->bs_op->retval = -EPIPE;
-                secondary_op_callback(cur_op);
+                finish_op(cur_op, -EPIPE);
                 return;
             }
             bs->read_bitmap(ov[i].oid, ov[i].version, (uint8_t*)cur_buf + sizeof(uint64_t), (uint64_t*)cur_buf);
