@@ -112,9 +112,10 @@ function make_cyclic(pgs, parity_space)
 {
     if (parity_space > 1)
     {
-        for (const pg in pgs)
+        for (const id in pgs)
         {
-            for (let i = 1; i < pg.size; i++)
+            const pg = pgs[id];
+            for (let i = 1; i < pg.length; i++)
             {
                 const cyclic = [ ...pg.slice(i), ...pg.slice(0, i) ];
                 pgs['pg_'+cyclic.join('_')] = cyclic;
