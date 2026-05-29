@@ -154,7 +154,7 @@ csum_unknown:
         dsk.bitmap_granularity = hdr->bitmap_granularity;
         dsk.clean_entry_bitmap_size = (hdr->data_block_size / hdr->bitmap_granularity + 7) / 8;
         dsk.clean_entry_size = sizeof(clean_disk_entry) + 2*dsk.clean_entry_bitmap_size
-            + (hdr->data_csum_type
+            + (hdr->csum_block_size
                 ? ((hdr->data_block_size+hdr->csum_block_size-1)/hdr->csum_block_size
                     *(hdr->data_csum_type & 0xff))
                 : 0)
@@ -544,7 +544,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
     uint32_t new_clean_entry_header_size = (new_hdr->version == BLOCKSTORE_META_FORMAT_V1
         ? sizeof(clean_disk_entry) : sizeof(clean_disk_entry) + 4 /*entry_csum*/);
     new_clean_entry_bitmap_size = (new_hdr->data_block_size / new_hdr->bitmap_granularity + 7) / 8;
-    new_data_csum_size = (new_hdr->data_csum_type
+    new_data_csum_size = (new_hdr->csum_block_size
         ? ((new_hdr->data_block_size+new_hdr->csum_block_size-1)/new_hdr->csum_block_size*(new_hdr->data_csum_type & 0xFF))
         : 0);
     new_clean_entry_size = new_clean_entry_header_size + 2*new_clean_entry_bitmap_size + new_data_csum_size;
@@ -573,7 +573,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
             ((uint8_t*)new_entry) + sizeof(clean_disk_entry) + new_clean_entry_bitmap_size);
         if (new_hdr->version == BLOCKSTORE_META_FORMAT_V2)
         {
-            if (new_hdr->data_csum_type != 0)
+            if (new_data_csum_size)
             {
                 fromhexstr(e["data_csum"].string_value(), new_data_csum_size,
                     ((uint8_t*)new_entry) + sizeof(clean_disk_entry) + 2*new_clean_entry_bitmap_size);
@@ -613,7 +613,7 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
     new_clean_entry_bitmap_size = (new_meta_hdr->data_block_size / new_meta_hdr->bitmap_granularity + 7) / 8;
     new_clean_entry_size = 0;
     new_entries_per_block = 0;
-    new_data_csum_size = (new_meta_hdr->data_csum_type
+    new_data_csum_size = (new_meta_hdr->csum_block_size
         ? ((new_meta_hdr->data_block_size+new_meta_hdr->csum_block_size-1)/new_meta_hdr->csum_block_size*(new_meta_hdr->data_csum_type & 0xFF))
         : 0);
     new_journal_buf = NULL;
@@ -793,7 +793,7 @@ close_err:
             wr->size = wr->get_size(&heap);
             fromhexstr(meta_entry["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_int_bitmap(&heap));
             fromhexstr(meta_entry["ext_bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
-            if (new_meta_hdr->data_csum_type != 0)
+            if (new_data_csum_size)
                 fromhexstr(meta_entry["data_csum"].string_value(), new_data_csum_size, wr->get_checksums(&heap));
             wr->crc32c = wr->calc_crc32c();
             assert((uint8_t*)wr + wr->size == new_meta_buf + meta_offset + used_space);
@@ -828,7 +828,7 @@ close_err:
                         fromhexstr(rec["data"].string_value(), wr_len, new_journal_buf+buffer_pos);
                         if (wr_len > 0)
                         {
-                            if (!new_meta_hdr->data_csum_type)
+                            if (!new_meta_hdr->csum_block_size)
                                 *wr->get_checksum(&heap) = crc32c(0, new_journal_buf+buffer_pos, wr_len);
                             else
                                 heap.calc_block_checksums((uint32_t*)wr->get_checksums(&heap), new_journal_buf+buffer_pos, NULL, wr_offset, wr_offset+wr_len, true, NULL);
@@ -841,7 +841,7 @@ close_err:
                         wr->set_big_location(&heap, sscanf_json(NULL, rec["loc"]));
                         bitmap_set(wr->get_int_bitmap(&heap), wr_offset, wr_len, new_meta_hdr->bitmap_granularity);
                         fromhexstr(rec["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
-                        if (new_meta_hdr->data_csum_type != 0)
+                        if (new_meta_hdr->csum_block_size)
                         {
                             if ((wr_offset % new_meta_hdr->csum_block_size) || (wr_len % new_meta_hdr->csum_block_size))
                             {
