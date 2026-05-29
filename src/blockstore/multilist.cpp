@@ -12,7 +12,7 @@ multilist_alloc_t::multilist_alloc_t(uint32_t count, uint32_t maxn):
     count(count), maxn(maxn)
 {
     // not-so-memory-efficient: 16 MB memory per 1 GB buffer space, but buffer spaces are small, so OK
-    assert(count > 1 && count < 0x80000000);
+    assert(count > 1 && count < 0x80000000 && count >= maxn);
     sizes.resize(count);
     nexts.resize(count); // nexts[i] = 0 -> area is used; nexts[i] = 1 -> no next; nexts[i] >= 2 -> next item
     prevs.resize(count);
