@@ -338,6 +338,7 @@ static void nfs_do_fsync(nfs_kv_write_state *st, int state)
     op->opcode = OSD_OP_SYNC;
     op->callback = [st, state](cluster_op_t *op)
     {
+        st->res = op->retval;
         delete op;
         nfs_kv_continue_write(st, state);
     };
@@ -904,6 +905,12 @@ resume_7:
                 return;
             }
 resume_8:
+            if (st->res < 0)
+            {
+                auto cb = std::move(st->cb);
+                cb(st->res);
+                return;
+            }
             // We always have to change inode entry on shared writes
             st->proxy->kvfs->write_inode(st->ino, new_shared_ientry(st), true, [st](int res)
             {
