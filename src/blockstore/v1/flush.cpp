@@ -1349,7 +1349,7 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
         cur_sync->ready_count++;
         flusher->syncing_flushers++;
     resume_1:
-        if (!cur_sync->state)
+        if (cur_sync->state == 0)
         {
             if (flusher->syncing_flushers >= flusher->active_flushers || !flusher->flush_queue.size())
             {
@@ -1376,6 +1376,12 @@ bool journal_flusher_co::fsync_batch(bool fsync_meta, int wait_base)
                 wait_state = wait_base+1;
                 return false;
             }
+        }
+        else if (cur_sync->state == 1)
+        {
+            // Wait for fsync completion
+            wait_state = wait_base+1;
+            return false;
         }
         flusher->syncing_flushers--;
         cur_sync->ready_count--;
