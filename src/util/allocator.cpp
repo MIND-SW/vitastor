@@ -152,8 +152,8 @@ void bitmap_set(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_gran
         *((uint64_t*)bitmap) = UINT64_MAX;
     else
     {
-        unsigned bit_start = start / bitmap_granularity;
-        unsigned bit_end = ((start + len) + bitmap_granularity - 1) / bitmap_granularity;
+        uint64_t bit_start = start / bitmap_granularity;
+        uint64_t bit_end = ((start + len) + bitmap_granularity - 1) / bitmap_granularity;
         while (bit_start < bit_end)
         {
             if (!(bit_start & 7) && bit_end >= bit_start+8)
