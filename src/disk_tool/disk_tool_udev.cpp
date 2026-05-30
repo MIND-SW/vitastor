@@ -138,6 +138,7 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
         free(buf);
         return 0;
     }
+    fsync(fd);
     close(fd);
     free(buf);
     if (!test_mode)
@@ -419,9 +420,9 @@ int disk_tool_t::clear_osd_superblock(const std::string & dev)
                     r = 0;
             }
         }
-    }
-    if (fd >= 0)
+        fsync(fd);
         close(fd);
+    }
     free(buf);
     buf = NULL;
     return r;
