@@ -417,5 +417,5 @@ uint32_t crc32c_pad(uint32_t prev_crc, const void *buf, size_t len, size_t left_
 
 uint32_t crc32c_nopad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad)
 {
-    return crc32c(0, buf, len);
+    return crc32c(prev_crc, buf, len);
 }
