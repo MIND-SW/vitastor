@@ -560,7 +560,7 @@ void blockstore_heap_t::finish_load()
         size_t s = 0, e, n = postponed_items.size();
         for (e = 1; e <= n; e++)
         {
-            if (e >= n || postponed_items[e]->entry.inode != postponed_items[s]->entry.inode &&
+            if (e >= n || postponed_items[e]->entry.inode != postponed_items[s]->entry.inode ||
                 postponed_items[e]->entry.stripe != postponed_items[s]->entry.stripe)
             {
                 insert_list_items(postponed_items.data()+s, e-s, false);
