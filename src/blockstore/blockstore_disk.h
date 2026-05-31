@@ -83,7 +83,7 @@ struct blockstore_disk_t
     void calc_lengths(bool skip_meta_check = false);
     void check_lengths();
     void close_all();
-    int trim_data(std::function<bool(uint64_t)> is_free);
+    int trim_data(std::function<bool(uint64_t)> is_used);
 
     inline uint64_t dirty_dyn_size(uint64_t offset, uint64_t len)
     {

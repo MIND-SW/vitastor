@@ -517,7 +517,7 @@ void blockstore_disk_t::close_all()
 
 // Sadly DISCARD only works through ioctl(), but it seems to always block the device queue,
 // so it's not a big deal that we can only run it synchronously.
-int blockstore_disk_t::trim_data(std::function<bool(uint64_t)> is_free)
+int blockstore_disk_t::trim_data(std::function<bool(uint64_t)> is_used)
 {
     if (mock_mode)
     {
@@ -528,7 +528,7 @@ int blockstore_disk_t::trim_data(std::function<bool(uint64_t)> is_free)
     uint64_t discarded = 0;
     for (; i <= block_count; i++)
     {
-        if (i >= block_count || is_free(i))
+        if (i >= block_count || is_used(i))
         {
             if (i > j && (i-j)*data_block_size >= min_discard_size)
             {
