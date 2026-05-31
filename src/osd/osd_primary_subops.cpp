@@ -200,6 +200,7 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
     {
         clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
         subop->op_type = (uint64_t)cur_op; // also dirty
+        subop->osd_num = this->osd_num;
         subop->bs_op = new blockstore_op_t((blockstore_op_t){
             .opcode = (uint64_t)(wr ? (cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED ? BS_OP_WRITE_STABLE : BS_OP_WRITE) : BS_OP_READ),
             .callback = [subop, this](blockstore_op_t *bs_subop)
