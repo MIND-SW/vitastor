@@ -965,6 +965,78 @@ void test_iterate_compaction()
         assert(small_writes == 1);
     }
 
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
+        // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) ROLLBACK(v2 l4) ROLLBACK(v1 l5)
+        // -> compact by adding BIG_STABLE(v1 l6) and skip l2 and l3
+        uint32_t mblock = 0;
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, false, buffer_area.data(), false);
+        _test_small_write(heap, dsk, 1, 0, 3, 4096, 4096, 4096, false, buffer_area.data(), false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        assert(obj->lsn == 3);
+
+        res = heap.add_rollback(obj, 2, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        res = heap.add_rollback(obj, 1, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 5);
+
+        assert(heap.get_fsynced_lsn() == 5);
+        int small_writes = 0;
+        obj = heap.read_entry(oid);
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(small_writes == 0);
+        assert(compact_info.compact_lsn == 5);
+        assert(compact_info.compact_version == 1);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+    {
+        // reload heap and check that object state isn't changed and validation passes
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), true, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 5);
+        assert(compact_info.compact_version == 1);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+    }
+
     printf("OK test_iterate_compaction\n");
 }
 

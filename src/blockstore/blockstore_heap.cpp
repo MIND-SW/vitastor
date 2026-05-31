@@ -2038,7 +2038,10 @@ void blockstore_heap_t::iterate_with_stable(heap_entry_t *obj, uint64_t max_lsn,
     {
         if (old_wr->type() == BS_HEAP_ROLLBACK)
         {
-            rollback_version = old_wr->version;
+            if (rollback_version > old_wr->version)
+            {
+                rollback_version = old_wr->version;
+            }
         }
         else if (old_wr->type() == BS_HEAP_COMMIT)
         {
@@ -2090,7 +2093,10 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
                 res.compact_lsn = wr->lsn;
                 res.compact_version = wr->version;
             }
-            rollback_version = wr->version;
+            if (rollback_version > wr->version)
+            {
+                rollback_version = wr->version;
+            }
             continue;
         }
         if (wr->type() == BS_HEAP_COMMIT && wr->lsn <= fsynced_lsn)
