@@ -642,6 +642,63 @@ static void test_padded_csum_parallel_read(bool perfect, uint32_t offset)
     free(op2.buf);
 }
 
+static void test_compact_rollback()
+{
+    printf("\n-- test_compact_rollback\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["csum_block_size"] = "16384";
+    test.config["atomic_write_size"] = "0";
+    test.init();
+
+    // Write
+    printf("write\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 8192;
+    op.len = 16384;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 16384);
+    memset(op.buf, 0xaa, 16384);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Rollback
+    printf("rollback\n");
+    op.opcode = BS_OP_ROLLBACK;
+    op.len = 1;
+    ((obj_ver_id*)op.buf)[0] = { .oid = { .inode = 1, .stripe = 0 }, .version = 0 };
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    // Trigger & wait compaction
+    test.bs->flusher->request_trim();
+    while (test.bs->heap->get_compact_queue_size())
+        test.ringloop->loop();
+    while (test.bs->flusher->is_active())
+        test.ringloop->loop();
+    test.bs->flusher->release_trim();
+    // Check that compaction succeeded
+    assert(!test.bs->heap->get_to_compact_count());
+
+    // Check that the object does not exist
+    printf("checking that the object does not exist\n");
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = 1;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    test.exec_op(&op2);
+    assert(op2.retval == -ENOENT);
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 // FIXME Add a simple intent_write / big_intent test
 
 int main(int narg, char *args[])
@@ -657,5 +714,6 @@ int main(int narg, char *args[])
     test_padded_csum_parallel_read(true, 8192);
     test_padded_csum_parallel_read(false, 16384);
     test_padded_csum_parallel_read(true, 16384);
+    test_compact_rollback();
     return 0;
 }

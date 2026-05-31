@@ -289,30 +289,41 @@ resume_1:
     {
         init_fsync_data();
     }
-    if (bs->log_level > 10)
+    if (compact_info.do_delete)
     {
-        printf("Compacting %jx:%jx v%ju..v%ju / l%ju..l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe,
-            compact_info.clean_wr->version, compact_info.compact_version,
-            compact_info.clean_wr->lsn, compact_info.compact_lsn, copy_count);
-    }
-    mem_or(new_bmp, compact_info.clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
-    if (!bitmap_copied)
-    {
-        memcpy(new_ext_bmp, compact_info.clean_wr->get_ext_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
-        bitmap_copied = true;
-    }
-    if (bs->dsk.csum_block_size && bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
-    {
-        memcpy(new_csums, compact_info.clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
-        for (size_t i = csum_copy.size(); i > 0; i--)
+        if (bs->log_level > 10)
         {
-            auto wr = csum_copy[i-1];
-            memcpy(new_csums + wr->small().offset/bs->dsk.csum_block_size*(bs->dsk.data_csum_type & 0xFF),
-                wr->get_checksums(bs->heap), wr->small().len/bs->dsk.csum_block_size*(bs->dsk.data_csum_type & 0xFF));
+            printf("Compacting %jx:%jx up to l%ju (delete)\n", cur_oid.inode, cur_oid.stripe, compact_info.compact_lsn);
         }
-        csum_copy.clear();
+        clean_loc = UINT64_MAX;
     }
-    clean_loc = compact_info.clean_wr->big_location(bs->heap);
+    else
+    {
+        if (bs->log_level > 10)
+        {
+            printf("Compacting %jx:%jx v%ju..v%ju / l%ju..l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe,
+                compact_info.clean_wr->version, compact_info.compact_version,
+                compact_info.clean_wr->lsn, compact_info.compact_lsn, copy_count);
+        }
+        mem_or(new_bmp, compact_info.clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+        if (!bitmap_copied)
+        {
+            memcpy(new_ext_bmp, compact_info.clean_wr->get_ext_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+            bitmap_copied = true;
+        }
+        if (bs->dsk.csum_block_size && bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
+        {
+            memcpy(new_csums, compact_info.clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
+            for (size_t i = csum_copy.size(); i > 0; i--)
+            {
+                auto wr = csum_copy[i-1];
+                memcpy(new_csums + wr->small().offset/bs->dsk.csum_block_size*(bs->dsk.data_csum_type & 0xFF),
+                    wr->get_checksums(bs->heap), wr->small().len/bs->dsk.csum_block_size*(bs->dsk.data_csum_type & 0xFF));
+            }
+            csum_copy.clear();
+        }
+        clean_loc = compact_info.clean_wr->big_location(bs->heap);
+    }
     overwrite_start = overwrite_end = 0;
     if (read_vec.size() > 0)
     {
@@ -625,7 +636,7 @@ int journal_flusher_co::check_and_punch_checksums()
 
 bool journal_flusher_co::calc_block_checksums()
 {
-    if (bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
+    if (bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity || compact_info.do_delete)
     {
         return true;
     }
